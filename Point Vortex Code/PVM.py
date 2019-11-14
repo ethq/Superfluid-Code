@@ -34,7 +34,7 @@ import collections
 class PVM:
 
     def __init__(self,
-                 n_vortices = 30,
+                 n_vortices = 5,
                  coords = None,
                  circ = None,
                  T = 5,
@@ -42,8 +42,10 @@ class PVM:
                  tol = 1e-8,
                  max_iter = 15,
                  annihilation_threshold = 1e-2,
-                 verbose = True
+                 verbose = True,
+                 domain_radius = 5
                  ):
+        self.domain_radius = domain_radius
         self.n_vortices = n_vortices
         self.max_n_vortices = n_vortices
         self.T = T
@@ -117,7 +119,67 @@ class PVM:
         y_vec = pos[:, 1]
 
         return np.sum(self.circulations*(x_vec**2 + y_vec**2))
+    
+    """ 
+    cfg is expected of form (N,2) in cartesian coordinates
+    tid is needed to extract the corresp. circulations
+    domain not quite isotropic, correction to shell area needed
+    """
+    def pair_correlation(self, cfg, tid):
+        dr = 0.1
+        
+        # A vortex can have neighbours up to r = 2d away, if it is on one side of the domain
+        bins = np.linspace(0, 2*self.domain_radius, int(2*self.domain_radius/dr) + 1)
+        
+        g = np.zeros_like(bins)
+        # For each point r, loop over all vortices. 
+        #   For each vortex, find all neighbours within a shell at distance r of thickness dr
+        
+        # Vortex number - possibly we should use an ensemble average to calculate <N> and rho
+        N = len(cfg)
+        for i, r in enumerate(bins):
+            
+            for j, v in enumerate(cfg):
+                av = self.shell_area(v)
+                ann = self.find_an(cfg, j, r, dr)
+                
+            g[i] = ann/av # remember to weight by circulation if desired
+        
+        # Do not weight individual pair correlations yet - I think we want to do this over an ensemble.
+        return g[i], N, N/(np.pi*self.domain_radius**2)
 
+    
+    """
+    Expects cartesian coordinates.
+    Calculates the area of a shell of radius r and thickness dr centered on the vortex coordinates v
+    Takes domain boundary into account, e.g. calculates only the part of the shell contained in domain
+    """
+    def shell_area(self, v, r, dr):
+        R = self.domain_radius
+        ri = np.linalg.norm(v)
+        
+        theta = 2*np.arccos( ( R**2 - r**2 - ri**2)/(2*r*ri) )
+        
+        return r*dr*(2*np.pi - theta)
+    
+    """ 
+    Finds all neighbours  within shell at r(dr)
+    """ 
+    def find_an(self, cfg, i, r, dr):
+        cv = cfg[i]
+        
+        ann = 0
+        for j,v in enumerate(cfg):
+            if j == i:
+                # don't calculate self-distance. needless optimization
+                assert(cfg[i, :] == cfg[j, :])
+                
+            d = self.eucl_dist(cv, v)
+            
+            if d > r and d < r + dr:
+                ann = ann + 1
+        return ann
+    
     def energy(self, pos):
         pass
 
@@ -195,7 +257,7 @@ class PVM:
         xvec_mesh, yvec_mesh = np.meshgrid(xvec, yvec)
 
         # generate mesh of image positions
-        xvec_im_mesh, yvec_im_mesh = np.meshgrid(xvec/(xvec**2 + yvec**2), yvec/(xvec**2 + yvec**2))
+        xvec_im_mesh, yvec_im_mesh = np.meshgrid(self.domain_radius**2*xvec/(xvec**2 + yvec**2), self.domain_radius**2*yvec/(xvec**2 + yvec**2))
 
         # temp variables for calcing distance between voritces and between voritces & images
         yy_temp = yvec_mesh - yvec_mesh.T
@@ -295,20 +357,23 @@ class PVM:
         tt = time.time() - ts
         if self.verbose:
             print('rk4_fulltime complete after %.2f s' % tt)
-
+            
+    """
+    Converts cartesian to polar coordinates. Returns [r, theta].
+    If y is not supplied, array MUST BE of form
+    x = [
+            [x0, y0],
+            [x1, y1],
+            ...
+        ]
+    """
     def cart2pol(self, x, y = None):
         # If y is not supplied, we provide some other behaviour
         if np.any(y == None):
-            # If x has length two, we assume it to be of form [x, y]
-            if len(x) == 2:
-                return list(self.cart2pol_scalar(x[0], x[1]))
-            # If it is longer, it must be an array of pairs [[x0, y0], [x1, y1]] and so on
-            if len(x) > 2:
-                out = []
-                for p in x:
-#                    print(len(x), x, y)
-                    out.append( list(self.cart2pol_scalar(p[0], p[1])) )
-                return out
+            out = []
+            for p in x:
+                out.append( list(self.cart2pol_scalar(p[0], p[1])) )
+            return out
         else:
             return self.cart2pol_scalar(x,y)
     
@@ -435,7 +500,7 @@ class PVM:
         ax.set_xticklabels([])    # Remove radial labels
         ax.set_yticklabels([])    # Remove angular labels
 
-        ax.set_ylim([0, 1])    # And this turns out to be the radial coord. #consistency
+        ax.set_ylim([0, self.domain_radius])    # And this turns out to be the radial coord. #consistency
 
         # Overconstructing axes for dipole/cluster lines, this can be optimized. At the very least, they need only be half size of vlines
         vlines = []
@@ -660,8 +725,8 @@ class PVM:
         # Start indexing at 1, since segments connect to last pt
         for i in np.arange(len(trail) - 1) + 1:
             s = [
-                    np.flip(self.cart2pol(trail[i-1])),
-                    np.flip(self.cart2pol(trail[i]))
+                    np.flip(self.cart2pol([trail[i-1]])[0]),
+                    np.flip(self.cart2pol([trail[i]])[0])
                 ]
             segs.append(s)
         return segs
