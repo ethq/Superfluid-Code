@@ -27,14 +27,18 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 import matplotlib.animation as animation
-from itertools import chain
+from itertools import chain, compress
 from tqdm import tqdm
 import collections
+import pickle
+from Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices
+
+from Vortex import Vortex
 
 class PVM_Evolver:
 
     def __init__(self,
-                 n_vortices = 5,
+                 n_vortices = 10,
                  coords = None,
                  circ = None,
                  T = 5,
@@ -54,17 +58,10 @@ class PVM_Evolver:
         self.max_iter = max_iter
         self.verbose = verbose
 
-        self.trail_lines_max = 20
         self.annihilation_threshold = annihilation_threshold
-
-        self.ani = None                    # For animation, handle required to stop 'on command'
-        self.vortex_lines = []
-        self.dipole_lines = []
-        self.cluster_lines = []
-        self.trail_lines = []
-
-        self.trails = []
         self.circulations = []
+        
+        self.vortices = []
 
         if coords == None:
             self.init_random_pos()
@@ -86,8 +83,10 @@ class PVM_Evolver:
         self.annihilation_map = collections.OrderedDict()
 
         self.trajectories = [ self.initial_positions ]
-        self.dipoles = []
-        self.clusters = []
+        
+        # We want numpy array here for masking
+        t0 = 0
+        self.vortices = np.array([Vortex(p,c, t0) for p,c in zip(self.initial_positions, self.circulations[0][0, :])])
 
 
     # Generates vortex positions uniformly over unit disk
@@ -103,7 +102,7 @@ class PVM_Evolver:
         theta = 2*np.pi*np.random.rand(self.n_vortices, 1)
 
         # Second index is (x, y)
-        self.initial_positions = np.hstack((self.pol2cart(r,theta)))
+        self.initial_positions = np.hstack((pol2cart(r,theta)))
 
     # Generates the vorticity of each vortex
     def init_circ(self):
@@ -172,12 +171,31 @@ class PVM_Evolver:
 
             # Delete vortices and their circulations. Slice at end because we delete across columns, which contain the distinct vortex circulations
             self.circulations.append(np.delete(self.circulations[-1], an_ind, axis = 1)[:-len(an_ind), :])
+            
+            # Delete in vortex list - removes need for annihilation map eventually
+            
+            # Get active vortices. Trajectories are constantly updated, so an_ind refers to active vortex list only
+            active_vortices = get_active_vortices(self.vortices)
+            
+            # Get the vortices to kill
+            dying_vortices = active_vortices[an_ind]
+            
+            # And annihilate them
+            [dv.annihilate(t_frame) for dv in dying_vortices]
+            
+            # Finally, return updated trajectories
             return np.delete(pos, an_ind, axis = 0)
-
-        # Highly memory inefficient. Also - time for a vortex class?
+        
+        # Memory inefficient. Devise scheme to only update vortex/circulation list on annihilation/spawning?
         self.circulations.append( self.circulations[-1] )
+        
         return pos
-
+    
+    # Returns active vortices at time tid. By default finds all vortices that are currently active
+    def get_active_vortices(self, tid = -np.Infinity):
+        # Create mask
+        mask = [v.is_alive(tid) for v in self.vortices]
+        return self.vortices[mask]
 
     def calc_dist_mesh(self, pos):
         # unpack vectors of vortex positions
@@ -257,6 +275,10 @@ class PVM_Evolver:
             i = i + 1
         return cpos
 
+    def update_vortex_positions(self, cpos, c_time):
+        av = get_active_vortices(self.vortices)
+        [v.set_pos(cp) for v,cp in zip(av, cpos)]
+
 
     """
     Integrates the full evolution of the system
@@ -271,11 +293,15 @@ class PVM_Evolver:
         c_pos = self.initial_positions
 
         for i in tqdm(np.arange(n_steps-1) + 1):
-            # annihilation (passively updates self.circulations)
+            # Annihilation 
+            # This function call also appends a new set of circulations to self.circulations
             c_pos = self.annihilate(c_pos, i)
+            
+            #Spawn
 
             # Adaptively evolve one timestep forward
             c_pos = self.rk4_error_tol(c_pos, c_time)
+            self.update_vortex_positions(c_pos, c_time)
 
             # Add the corresp trajectory
             self.trajectories.append(c_pos)
@@ -288,42 +314,31 @@ class PVM_Evolver:
         if self.verbose:
             print('rk4_fulltime complete after %.2f s' % tt)
             
-    """
-    Converts cartesian to polar coordinates. Returns [r, theta].
-    If y is not supplied, array MUST BE of form
-    x = [
-            [x0, y0],
-            [x1, y1],
-            ...
-        ]
-    """
-    def cart2pol(self, x, y = None):
-        # If y is not supplied, we provide some other behaviour
-        if np.any(y == None):
-            out = []
-            for p in x:
-                out.append( list(self.cart2pol_scalar(p[0], p[1])) )
-            return out
-        else:
-            return self.cart2pol_scalar(x,y)
-    
-    def cart2pol_scalar(self, x, y):
-        rho = np.sqrt(x**2 + y**2)
-        phi = np.arctan2(y, x)
-        return(rho, phi)
 
-    def pol2cart(self, rho, phi):
-        x = rho * np.cos(phi)
-        y = rho * np.sin(phi)
-        return(x, y)
 
     def save_trajectories(self, fname = None):
         if fname == None:
-            fname = "VortexTrajectories_N%d_T%d_ATR%f" % (self.max_n_vortices, self.T, self.annihilation_threshold)
-        np.savez(fname, 
-                 trajectories = self.trajectories, 
-                 circulations = self.circulations, 
-                 annihilation_map = self.annihilation_map)
+            fname = "VortexEvolution_N%d_T%d_ATR%f" % (self.max_n_vortices, self.T, self.annihilation_threshold)
+            fname = fname.rstrip('0') + '.dat'
+            
+        settings = {
+                'Total_time': self.T,
+                'Timestep': self.dt,
+                'N_steps': int(self.T/self.dt),
+                'Domain_radius': self.domain_radius,
+                'Annihilation_threshold': self.annihilation_threshold,
+                'Tolerance': self.tol
+                }    
+        
+        data = {
+            'Settings': settings,
+            'Trajectories': self.trajectories,
+            'Circulations': self.circulations,
+            'Vortices': self.vortices
+                }
+        
+        with open(fname, "wb") as f:
+            pickle.dump(data, f)
 
 #    def load_trajectories(self, fname):
 #        files = np.load(fname)
@@ -343,3 +358,4 @@ class PVM_Evolver:
 if __name__ == '__main__':
     pvm = PVM_Evolver()
     pvm.rk4_fulltime()
+    pvm.save_trajectories()
