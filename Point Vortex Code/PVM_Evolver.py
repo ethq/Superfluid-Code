@@ -18,6 +18,11 @@ Evolves a given initial configuration in time
         T:                 [Integer] Total simulation time
         dt:                [Float]   Timestep
         tol:               [Float]   Tolerance for interval splitting
+        initial_radius:    [Integer] Radial extent of initial vortex spawning
+        spawn_sep:         [Float] Dipole spawning separation
+        spawn_rate:        [Integer] Rate of Poisson process, relative to normalized max timesteps N = 1
+        stirrer_rad:       [Float] Radius of stirring object
+        stirrer_vel:       [Float] Velocity of stirring object
 
 
 """
@@ -48,7 +53,10 @@ class PVM_Evolver:
                  max_iter = 15,
                  annihilation_threshold = 1e-2,
                  verbose = True,
-                 domain_radius = 5
+                 domain_radius = 5,
+                 initial_radius = 2,
+                 spawn_sep = .4,
+                 spawn_rate = 100
                  ):
         self.domain_radius = domain_radius
         self.n_vortices = n_vortices
@@ -90,7 +98,10 @@ class PVM_Evolver:
         # We want numpy array here for masking
         t0 = 0
         self.vortices = np.array([Vortex(p,c, t0) for p,c in zip(self.initial_positions, self.circulations[0][0, :])])
-
+        
+        self.spawn_rate = spawn_rate
+        self.spawn_sep = spawn_sep
+        self.calc_spawning_times()
 
     # Generates vortex positions uniformly over unit disk
     def init_random_pos(self):
@@ -116,7 +127,26 @@ class PVM_Evolver:
         c[:h] = -1
 
         self.circulations = [np.flip(np.kron(np.ones((self.n_vortices, 1)), c))]
-
+    
+    def calc_spawning_times(self):
+        t = 0
+        lam = self.spawn_rate
+        hits = []
+        
+        
+        N = int(self.T/self.dt)
+        while t < N:
+            r = np.random.rand()
+            t = t - np.log(r/lam)
+            hits.append(t)
+        
+        self.spawn_times = np.floor(hits).astype(int)
+        print(self.spawn_times)
+    
+    # Spawns in vortices at a given rate, separation and position
+    def spawn(self, pos, t_frame):
+        pass
+        
     # Architecturally cleaner to annihilate before/after evolution, but does mean we compute the same thing twice.
     def annihilate(self, pos, t_frame):
         rr1 = self.calc_dist_mesh(pos)[4]
