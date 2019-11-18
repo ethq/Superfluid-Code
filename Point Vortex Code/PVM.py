@@ -18,8 +18,6 @@ Unit disk for now(remember this enters in calculation of image vortex positions)
         T:                 [Integer] Total simulation time
         dt:                [Float]   Timestep
         tol:               [Float]   Tolerance for interval splitting
-
-
 """
 
 import numpy as np

@@ -24,7 +24,7 @@ def cart2pol(x, y = None):
             out.append( list(cart2pol_scalar(p[0], p[1])) )
         return out
     else:
-        return self.cart2pol_scalar(x,y)
+        return cart2pol_scalar(x,y)
 
 def cart2pol_scalar(x, y):
     rho = np.sqrt(x**2 + y**2)
@@ -40,9 +40,49 @@ def eucl_dist(v1, v2):
     d = v1-v2
     return d @ d.T
 
+# Currently vortex indices match up to indices in the vortex array, as they are added sequentially
+# May change in future, hence function
+def get_vortex_by_id(vortices, id_):
+    if type(id_) == int:
+        id_ = [id_]
+        
+    return [v for v in vortices if v.id in id_]
+
+"""
+Vortices: [array] of class Vortex
+tid: [integer] time to get position
+with_id: if supplied, also returns an array of vortex ids
+
+
+Returns:
+    (positions, circulations, [ids])
+
+"""
+def get_active_vortex_cfg(vortices, tid):
+    # Mask alive vortices
+    mask = [v.is_alive(tid) for v in vortices]
+    
+    a_vortices = vortices[mask]
+    
+    # Get ids
+    ids = np.array([v.id for v in a_vortices])
+    
+    # Get positions
+    pos = np.array([v.get_pos(tid) for v in a_vortices])
+    
+    # Get circulations
+    circ = np.array([v.circ for v in a_vortices])
+    
+    return {
+            'positions': pos,
+            'circulations': circ,
+            'ids': ids
+            }
 
 # Returns active vortices at time tid. By default finds all vortices that are currently active
 def get_active_vortices(vortices, tid = -np.Infinity):
     # Create mask
     mask = [v.is_alive(tid) for v in vortices]
+    
     return vortices[mask]
+    

@@ -9,6 +9,7 @@ Created on Fri Nov 15 18:08:51 2019
 # IDs start at 0
 
 import numpy as np
+from tqdm import tqdm
 
 class Vortex:
     iid = 0
@@ -44,7 +45,11 @@ class Vortex:
         
         # Adjust for time of spawning
         tid = t - self.t0
-        assert tid > 0 and tid < len(self.trajectory)
+#        print(tid, self.t1)
+#        assert tid >= 0 and tid < len(self.trajectory)
+        
+        if tid < 0 or tid >= len(self.trajectory):
+            print(self.t1, self.id, tid, self.trajectory)
         
         return self.trajectory[tid]
     
@@ -52,6 +57,7 @@ class Vortex:
     # been annihilated
     def is_alive(self, tc = np.Inf):
         # No annihilation has ever occured; must be alive
+
         if self.t1 == -1:
             return True
         
@@ -59,7 +65,7 @@ class Vortex:
         return self.t1 > tc
     
     def annihilate(self, t1):
-        print('Oh no I died')
+        tqdm.write('Oh no I died at t = %d and my name is %d' % (t1, self.id))
         self.t1 = t1
     
     """
@@ -70,12 +76,12 @@ class Vortex:
     def get_trajectory(self, tend = -1, tlen = 5):
         # Return from end of trajecory
         if tend == -1:
-            return self.trajectory[-tlen:]
+            return np.array(self.trajectory[-tlen:])
         
         # Find start time
         ts = np.max([tend-tlen,0])
         
-        return self.trajectory[ts:ts+tlen]
+        return np.array(self.trajectory[ts:tend])
     
         
 

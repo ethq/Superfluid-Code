@@ -15,28 +15,30 @@ from tqdm import tqdm
 import collections
 import pickle
 
-from Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices
+from Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices, get_active_vortex_cfg
 from Vortex import Vortex
+
+from PVM_Conventions import PVM_Conventions
 
 
 """
     Expects a filename, file of format given by PVM_Evolver:
         data = {
-            'Settings': settings,
-            'Trajectories': self.trajectories,
-            'Circulations': self.circulations,
-            'Vortices': self.vortices
+            'settings': settings,
+            'trajectories': self.trajectories,
+            'circulations': self.circulations,
+            'vortices': self.vortices
             }
         
         where 
         
         settings = {
-                'Total_time': self.T,
-                'Timestep': self.dt,
-                'N_steps': int(self.T/self.dt),
-                'Domain_radius': self.domain_radius,
-                'Annihilation_threshold': self.annihilation_threshold,
-                'Tolerance': self.tol
+                'total_time': self.T,
+                'timestep': self.dt,
+                'n_steps': int(self.T/self.dt),
+                'domain_radius': self.domain_radius,
+                'annihilation_threshold': self.annihilation_threshold,
+                'tolerance': self.tol
                 } 
         
         Trajectories is an (N_steps, N_vortices, 2) array.
@@ -45,65 +47,79 @@ from Vortex import Vortex
 """
 class PVM_Analysis:
     
-    def __init__(self, fname):
+    def __init__(self, fname = None, traj_data = None):
         
+        # We must either have a datafile or get the data directly passed to us
+        assert fname or traj_data
         
-        with open(fname, "rb") as f:
-            data = pickle.load(f)
-            self.settings = data['Settings']
-            self.vortices = data['Vortices']
-            self.trajectories = ['Trajectories']
-            self.circulations = ['Circulations']
-            
+        if fname:
+            fname = 'VortexEvolution_' + fname
+            with open(fname, "rb") as f:
+                data = pickle.load(f)                
+        else:
+            data = traj_data
+        
+        self.fname = fname
+        
+        self.settings = data['settings']
+        self.vortices = data['vortices']
+        self.trajectories = data['trajectories']
+        self.circulations = data['circulations']
+        
+        self.conventions = PVM_Conventions()
         
         self.dipoles = []
         self.clusters = []
-        
-        self.cluster_analysis()
-        
-    
-    # Currently vortex indices match up to indices in the vortex array, as they are added sequentially
-    # May change in future, hence function
-    def get_vortex_by_id(self, id_):
-        return self.vortices[id]
+
     
     # Run a complete cluster analysis for all time frames
     # find_dipoles must be ran prior to find_clusters; two parts of the algorithm
     def cluster_analysis(self):
-        for i in np.arange(self.settings['N_steps']):
+        # Loop over time
+        for i in np.arange(self.settings['n_steps']):
+            # Construct configuration with id map
+            cfg = get_active_vortex_cfg(self.vortices, i)
             
-            self.dipoles.append( self.find_dipoles(i) )
-            self.clusters.append( self.find_clusters(i) )
-            
-    
-    def find_clusters(self, i):
-        vortices = get_active_vortices(self.vortices, i)
+            # Detect dipoles and clusters
+            self.dipoles.append( self.find_dipoles(cfg) )
+            self.clusters.append( self.find_clusters(cfg) )
         
+        print('Cluster analysis complete')
+        
+        return {
+                'dipoles': self.dipoles,
+                'clusters': self.clusters
+                }
+    
+    def find_clusters(self, cfg):
+        pos = cfg['positions']
+        circs = cfg['circulations']
+        ids = cfg['ids']
         
         clusters = []
         cluster_ids = []
-
-        for v in vortices:
-            if v.id in dipoles or v.id in cluster_ids:
+        
+        for i, _ in enumerate(ids):
+            if ids[i] in self.dipoles[-1] or ids[i] in cluster_ids:
                 continue
 
             # Find cluster partners
-            tar = self.get_vortex_by_id(v.id)
-            
-            #
-            _, tar_enemy_dist = self.find_nn(vortices, v.id, i, True)
+            tpos = pos[i]
+            tcirc = circs[i]
+
+            _, tar_enemy_dist = self.find_nn(cfg, i, True)
 
             cluster = []
 
-            for v2 in vortices:
-                # Skip if dipole or of opposite sign. Assumption that dipoles have been previously computed for this timestep
-                if v2.id in self.dipoles[-1] or v2.circ != tar.circ or v.id == v2.id:
+            for j, _ in enumerate(ids):
+                # Skip if dipole or of opposite sign
+                if ids[j] in self.dipoles[-1] or circs[j] != tcirc or j == i:
                     continue
 
                 # We found a same-sign not-dipole vortex.
                 # Check their distance and their distance to nearest opposite sign
 
-                dist_friend = self.eucl_dist(tar, cfg[0][j, :])
+                dist_friend = eucl_dist(tpos, pos[j])
 
                 if (tar_enemy_dist < dist_friend):
                     continue
@@ -115,9 +131,9 @@ class PVM_Analysis:
 
                 # Friends are closer than either are to an enemy, cluster them
                 if not len(cluster):
-                    cluster.append(i)
+                    cluster.append(ids[i])
 
-                cluster.append(j)
+                cluster.append(ids[j])
 
             cluster_ids.extend(cluster)
             if len(cluster):
@@ -126,66 +142,148 @@ class PVM_Analysis:
         return clusters
 
     """
-        Rule: if two vorticies are mutually nearest neighbours, we classify them as a dipole
+        Rule: if two vortices are mutually nearest neighbours, we classify them as a dipole
     """
-    def find_dipoles(self, i):
-        vortices = get_active_vortices(self.vortices, i)
-        
+    def find_dipoles(self, cfg):
         dipoles = []
         
+        circ = cfg['circulations']
+        ids = cfg['ids']
+
         # Loop over all vortices
-        for v in vortices:
+        for i, _ in enumerate(ids):
             # If already classified as dipole, skip
-            if v.id in dipoles:
+            if ids[i] in dipoles:
                 continue
             
             # Find nearest neighbour of this vortex
-            nn_id, _ = self.find_nn(vortices, v.id, i)
-            
-            # And nearest neighbour of nearest neighbour
-            nn_nn_id, _ = self.find_nn(vortices, nn_id, i)
-            
+            j ,_ = self.find_nn(cfg, i)
+
+            # ... and nn of nn
+            i2,_ = self.find_nn(cfg, j)
+
             # Mutual nearest neighbour found, classify as dipole if signs match
-            if ((nn_nn_id == v.id) and v.circ == self.get_vortex_by_id(nn_nn_id).circ):
-                dipoles.append(v.id)
-                dipoles.append(nn_nn_id)
-                
-        # Todo maybe add dipoles in ... pairs? That would be logical! 
+            if ((i2 == i) and (circ[i] != circ[j])):
+                dipoles.append(ids[i])
+                dipoles.append(ids[j])
+
         return dipoles
 
     """
-    Find nearest neighbour of vortex number vid at time i. if opposite is true, find only neighbour of opposite circulation
+    find nearest neighbour of vortex number i. if opposite is true, find only neighbour of opposite circulation
     """
-    
-    def find_nn(self, vortices, vid, i, opposite = False):
+    def find_nn(self, cfg, i, opposite = False):
+        pos = cfg['positions']
+        circ = cfg['circulations']
+        ids = cfg['ids']
+        
         smallest_dist = np.Inf
-        
-        # Target to find nearest neighbour of
-        tar = self.get_vortex_by_id(vid)
-        
-        # Nearest neighbour id
         nn = -1
-        
-        # Loop over all vortices
-        for v in vortices:
-            # If this vortex is the one we are looking at, skip
-            # If opposite is true and these are same sign, skip
-            if vid == v.id or (opposite and v.circ == tar.circ):
+
+        for j, _ in enumerate(ids):
+            if j == i or (opposite and (circ[i] == circ[j])):
                 continue
-            
-            dist = eucl_dist(tar.get_pos(i), v.get_pos(i))
-            
+
+            dist = eucl_dist(pos[i], pos[j])
             if (dist < smallest_dist):
                 smallest_dist = dist
-                nn = v.id
-                
+                nn = j
+
         return nn, smallest_dist
+    
+    
+    
+    def angular(self, pos):
+        x_vec = pos[:, 0]
+        y_vec = pos[:, 1]
 
+        return np.sum(self.circulations*(x_vec**2 + y_vec**2))
+    
+    """ 
+    cfg is expected of form (N,2) in cartesian coordinates
+    tid is needed to extract the corresp. circulations
+    domain not quite isotropic, correction to shell area needed
+    """
+    def pair_correlation(self, cfg, tid):
+        dr = 0.1
+        
+        # A vortex can have neighbours up to r = 2d away, if it is on one side of the domain
+        bins = np.linspace(0, 2*self.domain_radius, int(2*self.domain_radius/dr) + 1)
+        
+        g = np.zeros_like(bins)
+        # For each point r, loop over all vortices. 
+        #   For each vortex, find all neighbours within a shell at distance r of thickness dr
+        
+        # Vortex number - possibly we should use an ensemble average to calculate <N> and rho
+        N = len(cfg)
+        for i, r in enumerate(bins):
+            
+            for j, v in enumerate(cfg):
+                av = self.shell_area(v)
+                ann = self.find_an(cfg, j, r, dr)
+                
+            g[i] = ann/av # remember to weight by circulation if desired
+        
+        # Do not weight individual pair correlations yet - I think we want to do this over an ensemble.
+        return g[i], N, N/(np.pi*self.domain_radius**2)
 
+    
+    """
+    Expects cartesian coordinates.
+    Calculates the area of a shell of radius r and thickness dr centered on the vortex coordinates v
+    Takes domain boundary into account, e.g. calculates only the part of the shell contained in domain
+    """
+    def shell_area(self, v, r, dr):
+        R = self.domain_radius
+        ri = np.linalg.norm(v)
+        
+        theta = 2*np.arccos( ( R**2 - r**2 - ri**2)/(2*r*ri) )
+        
+        return r*dr*(2*np.pi - theta)
+    
+    """ 
+    Finds all neighbours  within shell at r(dr)
+    """ 
+    def find_an(self, cfg, i, r, dr):
+        cv = cfg[i]
+        
+        ann = 0
+        for j, v in enumerate(cfg):
+            if j == i:
+                # don't calculate self-distance. needless optimization
+                assert(cfg[i, :] == cfg[j, :])
+                
+            d = self.eucl_dist(cv, v)
+            
+            if d > r and d < r + dr:
+                ann = ann + 1
+        return ann
+    
+    def energy(self, pos):
+        pass    
+    
+    """
+    
+    Saves analysis to file according to conventions
+    
+    """
+    def save(self):
+        fname = self.conventions.save_conventions(self.settings['max_n_vortices'], 
+                                                  self.settings['total_time'], 
+                                                  self.settings['annihilation_threshold'], 
+                                                  self.settings['seed'],
+                                                  'Analysis')
+        data = {
+            'dipoles': self.dipoles,
+            'clusters': self.clusters
+                }
+        
+        with open(fname, "wb") as f:
+            pickle.dump(data, f)
+        
     
     
 if __name__ == '__main__':
-    pvm = PVM_Analysis('VortexEvolution_N5_T5_ATR0.01.dat')
-#    fname = 'VortexEvolution_N5_T5_ATR0.01.dat'
-#    with open(fname, "rb") as f:
-#        data = pickle.load(f)
+    pvm = PVM_Analysis('N10_T5_ATR0.01_90376.dat')
+    pvm.cluster_analysis()
+    pvm.save()
