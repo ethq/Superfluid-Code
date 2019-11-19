@@ -51,12 +51,12 @@ class PVM_Evolver:
                  dt = 0.01,
                  tol = 1e-8,
                  max_iter = 15,
-                 annihilation_threshold = 1e-2,
+                 annihilation_threshold = 1e-7,
                  verbose = True,
                  domain_radius = 5,
                  initial_radius = 2,
                  spawn_sep = .1,
-                 spawn_rate = 1e20,
+                 spawn_rate = -1,
                  stirrer_rad = 1,
                  stirrer_vel = .3
                  ):
@@ -101,6 +101,7 @@ class PVM_Evolver:
         t0 = 0
         self.vortices = np.array([Vortex(p,c, t0) for p,c in zip(self.initial_positions, self.circulations[0][0, :])])
         
+        self.spawn_times = []
         self.spawn_rate = spawn_rate
         self.spawn_sep = spawn_sep
         self.stirrer_rad = stirrer_rad
@@ -137,6 +138,8 @@ class PVM_Evolver:
         lam = self.spawn_rate
         hits = []
         
+        if self.spawn_rate == -1:
+            return
         
         N = int(self.T/self.dt)
         while t < N:
@@ -202,7 +205,7 @@ class PVM_Evolver:
         return pos
         
     # Architecturally cleaner to annihilate before/after evolution, but does mean we compute the same thing twice.
-    def annihilate(self, pos, t_frame):
+    def annihilate(self, pos, t_frame):        
         rr1 = self.calc_dist_mesh(pos)[4]
 
         # pick unique distances, e.g. set everything on and below diagonal to a lockout value(should exceed annihilation threshold)
@@ -377,7 +380,7 @@ class PVM_Evolver:
 
         for i in tqdm(np.arange(n_steps-1) + 1):
             # Annihilation 
-            # This function call also appends a new set of circulations to self.circulations
+            # This function call also appends a new set of circulations to self.circulations - iff annihilation
             c_pos = self.annihilate(c_pos, i)
             
             #Spawn. As annihilate() adds a new circulation matrix, spawn() only modifies it

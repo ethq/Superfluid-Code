@@ -40,6 +40,10 @@ class PVM_Animation:
         self.circulations = evolution_data['circulations']
         self.dipoles = analysis_data['dipoles']
         self.clusters = analysis_data['clusters']
+        self.energies = analysis_data['energies']
+        
+        # Take relative to initial energy
+        self.energies = self.energies - self.energies[0]
         
         # Remembering to close the files
         if fname_param:
@@ -54,6 +58,8 @@ class PVM_Animation:
         self.cluster_lines = []
         self.trail_lines = []
         
+        self.energy_ax = None
+        
         # vortices spinning cw(ccw) are coloured black(red)
         self.vortex_colours = {-1:'#383535', 1:'#bd2b2b'} # Indexed by ciculation
         self.dipole_colour = '#c0e39d'
@@ -67,8 +73,34 @@ class PVM_Animation:
                 'dipole_vortex': 'o',
                 'cluster_vortex': 's'
                 }
+    
+    def update_energies(self, i):
+        # Avoiding some limit issues on the plot
+        if i < 2 or i > 499:
+            return
         
-    def animate_trajectories_update(self, i):
+        # Restrict ourselves to plotting the last n energies
+        n_energies = 500
+        ax = self.energy_ax
+        
+        start_i = np.max([i-n_energies, 0])
+        
+        times = np.linspace(start_i, i, i-start_i+1).astype(int)
+        energies = self.energies[start_i:i+1]
+        
+        ax.get_lines()[0].set_xdata(times)
+        ax.get_lines()[0].set_ydata(energies)
+        
+        ax.set_xlim([start_i, i])
+        ax.set_ylim([np.min(energies), np.max(energies)])
+        
+    
+    # FuncAnimation callback function, in turn calls functions to update our plot
+    def animation_update(self, i):
+        self.update_energies(i)
+        self.update_trajectories(i)
+        
+    def update_trajectories(self, i):
         # Are we done?
         if i >= self.n_steps:
             self.ani.event_source.stop()
@@ -192,7 +224,9 @@ class PVM_Animation:
 
     def animate_trajectories(self):
         f = plt.figure()
-        ax = f.add_subplot(111, polar = True)
+        
+        # First add axis for the animation of vortices
+        ax = f.add_subplot(211, polar = True)
         ax.grid(False)
         ax.set_xticklabels([])    # Remove radial labels
         ax.set_yticklabels([])    # Remove angular labels
@@ -217,12 +251,36 @@ class PVM_Animation:
         self.vortex_lines = vlines
         self.dipole_lines = dlines
         self.cluster_lines = clines
-
-        self.ani = animation.FuncAnimation(f, self.animate_trajectories_update, interval = 100)
+        
+        # Add axis for plotting of energy(can switch to e.g. pair correlation later)
+        axe = f.add_subplot(212)
+        axe.grid(False)
+        axe.plot([], [])
+        axe.set_title('Energy deviation')
+        axe.set_xlabel('Frame')
+        axe.set_ylabel('Deviation')
+        self.energy_ax = axe
+        
+        
+        # Adjust the size of axes
+        box = axe.get_position()
+        axe.set_position([box.x0, box.y0, box.width, box.height*0.5])
+        
+        box = ax.get_position()
+        xratio = 1.8
+        yratio = 1.8
+        nbox = [box.x0-box.width*(xratio-1)/2, box.y0-box.height*(yratio-1)/2, box.width*xratio, box.height*yratio]
+        
+        # A little further down..
+        nbox[-1] = nbox[-1] - 0.1
+        ax.set_position(nbox)
+        
+        
+        self.ani = animation.FuncAnimation(f, self.animation_update, interval = 100)
         plt.show()
             
 if __name__ == '__main__':
-    fname = 'N30_T5_ATR0.01.dat'  # Identifier
+    fname = 'N20_T5_ATR0..dat'  # Identifier
     
     pvm = PVM_Animation(fname)
     pvm.animate_trajectories()

@@ -10,6 +10,7 @@ Created on Fri Nov 15 18:08:51 2019
 
 import numpy as np
 from tqdm import tqdm
+from Utilities import eucl_dist
 
 class Vortex:
     iid = 0
@@ -37,6 +38,21 @@ class Vortex:
         
         self.pos = pos
         self.trajectory.append(pos)
+    
+    
+    """
+    Returns the position of this vortex's image at time t. 
+    Assumes for the moment that the vortex lives in a circular domain of radius R
+    """
+    def get_impos(self, t, R):
+        # Get own position
+        sp = self.get_pos(t)
+        
+        # Square magnitude
+        r2 = eucl_dist(sp, [0,0])
+       
+        # .. and image position
+        return R**2*sp/r2
     
     # Returns latest position or at a time t if given
     def get_pos(self, t):

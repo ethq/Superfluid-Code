@@ -70,6 +70,7 @@ class PVM_Analysis:
         
         self.dipoles = []
         self.clusters = []
+        self.energies = []
 
     
     # Run a complete cluster analysis for all time frames
@@ -86,6 +87,8 @@ class PVM_Analysis:
             
             # Compute energy
             self.energies.append( self.get_energy(i) )
+            
+        self.energies = np.array(self.energies)
         
         print('Cluster analysis complete')
         
@@ -268,14 +271,31 @@ class PVM_Analysis:
     def get_energy(self, frame):
         H = 0
         
+        
         for v1 in self.vortices:
+            if not v1.is_alive(frame):
+                continue
+            
             for v2 in self.vortices:
-                if v1.id == v2.id:
+                if not v2.is_alive(frame):
                     continue
                 
-                r2 = eucl_dist(v1.get_pos(frame), v2.get_pos(frame))
-                H = H - 1/(np.pi)*np.log(r2)
-        
+                # Contribution from vortex-vortex interactions, excluding self-interaction
+                v1p = np.array(v1.get_pos(frame))
+                v2p = np.array(v2.get_pos(frame))
+                r2 = eucl_dist(v1p, v2p)
+                
+                if v1.id != v2.id:
+                    H = H - v1.circ*v2.circ/(np.pi)*np.log(r2)
+                
+                # Contribution from vortex-image interactions
+                # We take the interaction to be between vortex v1 and the image of v2, keeping singular term
+                
+                v2ip = np.array(v2.get_impos(frame, self.settings['domain_radius']))
+                
+                ri2 = eucl_dist(v1p, v2ip)
+                
+                H = H - -1*v1.circ*v2.circ/np.pi*np.log(ri2)
         return H
     
     """
@@ -291,7 +311,8 @@ class PVM_Analysis:
                                                   'Analysis')
         data = {
             'dipoles': self.dipoles,
-            'clusters': self.clusters
+            'clusters': self.clusters,
+            'energies': self.energies
                 }
         
         with open(fname, "wb") as f:
@@ -300,6 +321,6 @@ class PVM_Analysis:
     
     
 if __name__ == '__main__':
-    pvm = PVM_Analysis('N30_T5_ATR0.01.dat')
+    pvm = PVM_Analysis('N20_T5_ATR0..dat')
     pvm.full_analysis()
     pvm.save()
