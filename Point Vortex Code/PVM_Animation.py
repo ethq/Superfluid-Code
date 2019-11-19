@@ -222,7 +222,7 @@ class PVM_Animation:
         plt.show()
             
 if __name__ == '__main__':
-    fname = 'N10_T5_ATR0.01_90376.dat'  # Identifier
+    fname = 'N30_T5_ATR0.01.dat'  # Identifier
     
     pvm = PVM_Animation(fname)
     pvm.animate_trajectories()

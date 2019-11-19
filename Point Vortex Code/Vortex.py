@@ -28,41 +28,36 @@ class Vortex:
         self.t0 = t0
         
         # Time of annihilation
-        self.t1 = -1
+        self.t1 = np.Inf
         
     def set_pos(self, pos):
         # Vortex annihilated
-        if self.t1 != -1:
+        if self.t1 != np.Inf:
             return
         
         self.pos = pos
         self.trajectory.append(pos)
     
     # Returns latest position or at a time t if given
-    def get_pos(self, t = -1):
-        if t == -1:
-            return self.pos
-        
+    def get_pos(self, t):
         # Adjust for time of spawning
         tid = t - self.t0
 #        print(tid, self.t1)
 #        assert tid >= 0 and tid < len(self.trajectory)
         
         if tid < 0 or tid >= len(self.trajectory):
+            print(self.t0, t, tid)
             print(self.t1, self.id, tid, self.trajectory)
         
         return self.trajectory[tid]
     
     # Returns whether this vortex is active. If t1 > tc, then it has not yet
     # been annihilated
-    def is_alive(self, tc = np.Inf):
-        # No annihilation has ever occured; must be alive
-
-        if self.t1 == -1:
+    def is_alive(self, tc):
+        if tc >= self.t0 and tc < self.t1:
             return True
         
-        # Annihilation occured, but if it in the future of tc, it is alive at t = tc
-        return self.t1 > tc
+        return False
     
     def annihilate(self, t1):
         tqdm.write('Oh no I died at t = %d and my name is %d' % (t1, self.id))
@@ -77,6 +72,9 @@ class Vortex:
         # Return from end of trajecory
         if tend == -1:
             return np.array(self.trajectory[-tlen:])
+        
+        # Adjust for spawn time
+        tend = tend - self.t0
         
         # Find start time
         ts = np.max([tend-tlen,0])
