@@ -15,7 +15,7 @@ evolver.rk4()
 traj_data = evolver.get_trajectory_data()
 analysis = PVM_Analysis(None, traj_data)
 
-analysis_data = analysis.cluster_analysis()
+analysis_data = analysis.full_analysis()
 
 animator = PVM_Animation(None, traj_data, analysis_data)
 animator.animate_trajectories()

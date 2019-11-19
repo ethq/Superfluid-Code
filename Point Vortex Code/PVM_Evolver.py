@@ -44,7 +44,7 @@ from PVM_Conventions import PVM_Conventions
 class PVM_Evolver:
 
     def __init__(self,
-                 n_vortices = 10,
+                 n_vortices = 20,
                  coords = None,
                  circ = None,
                  T = 5,
@@ -55,8 +55,10 @@ class PVM_Evolver:
                  verbose = True,
                  domain_radius = 5,
                  initial_radius = 2,
-                 spawn_sep = .4,
-                 spawn_rate = 100
+                 spawn_sep = .1,
+                 spawn_rate = 1e20,
+                 stirrer_rad = 1,
+                 stirrer_vel = .3
                  ):
         self.domain_radius = domain_radius
         self.n_vortices = n_vortices
@@ -101,6 +103,8 @@ class PVM_Evolver:
         
         self.spawn_rate = spawn_rate
         self.spawn_sep = spawn_sep
+        self.stirrer_rad = stirrer_rad
+        self.stirrer_vel = stirrer_vel
         self.calc_spawning_times()
 
     # Generates vortex positions uniformly over unit disk
@@ -141,11 +145,61 @@ class PVM_Evolver:
             hits.append(t)
         
         self.spawn_times = np.floor(hits).astype(int)
-        print(self.spawn_times)
     
-    # Spawns in vortices at a given rate, separation and position
+    # Spawns in vortex dipoles at a given rate, separation and position
+    # Does currently not support multispawn at a single time
     def spawn(self, pos, t_frame):
-        pass
+        # Spawn a vortex
+        if t_frame in self.spawn_times:
+            if self.verbose:
+                tqdm.write("I be spawning a vortex dipole")
+            # Increase potential maximum, for animation reasons
+            self.max_n_vortices = self.max_n_vortices + 2
+            
+            # And adjust current vortex number
+            self.n_vortices = self.n_vortices + 2
+            
+            # Calculate spawn location
+            omega = self.stirrer_vel/self.stirrer_rad
+            
+            # This may be too coarse.. rescale?
+            n_orbits = 10 # class variable
+            t_rs = t_frame*2*np.pi*n_orbits/int(self.T/self.dt)
+            x, y = self.stirrer_rad*np.cos(omega*t_rs), self.stirrer_rad*np.sin(omega*t_rs)
+            
+            # Radial cm coordinates
+            r, t = cart2pol(x, y)
+            
+            # Adjust negative and positve spin positions radially
+            rn, rp = r + self.spawn_sep, r - self.spawn_sep
+            
+            # Reconstruct cartesian coordinates as it is what we use in evolution 
+            xp, yp = pol2cart(rp, t)
+            xn, yn = pol2cart(rn, t)
+            
+            # Add to trajectory, circulations and vortex list
+            
+            # Update vortex list
+            vp = Vortex([xp, yp],  1, t_frame)
+            vn = Vortex([xn, yn], -1, t_frame)
+            self.vortices = np.append(self.vortices, [vp, vn])
+            
+            # Update trajectory
+            pos = np.vstack((pos, [xp, yp]))
+            pos = np.vstack((pos, [xn, yn]))
+            
+            # Update circulations. The -2 is here because we append column to old circulation first
+            cp = np.ones(self.n_vortices - 2)
+            
+            # Add in new vorticity columns
+            self.circulations[-1] = np.c_[self.circulations[-1], cp, -1*cp]
+            
+            # Add in another two (identical) rows
+            crow = self.circulations[-1][0, :]
+            self.circulations[-1] = np.r_[self.circulations[-1], [crow, crow]]
+            
+            
+        return pos
         
     # Architecturally cleaner to annihilate before/after evolution, but does mean we compute the same thing twice.
     def annihilate(self, pos, t_frame):
@@ -206,10 +260,8 @@ class PVM_Evolver:
             # Delete vortices and their circulations. Slice at end because we delete across columns, which contain the distinct vortex circulations
             self.circulations.append(np.delete(self.circulations[-1], an_ind, axis = 1)[:-len(an_ind), :])
             
-            # Delete in vortex list - removes need for annihilation map eventually
-            
             # Get active vortices. Trajectories are constantly updated, so an_ind refers to active vortex list only
-            living_mask = [v.is_alive() for v in self.vortices]
+            living_mask = [v.is_alive(t_frame) for v in self.vortices]
             active_vortices = self.vortices[living_mask]
             
             # Get the vortices to kill
@@ -305,9 +357,10 @@ class PVM_Evolver:
         return cpos
 
     def update_vortex_positions(self, cpos, c_time):
-        living_mask = [v.is_alive() for v in self.vortices]
+        living_mask = [v.is_alive(c_time) for v in self.vortices]
         av = self.vortices[living_mask]
-        [v.set_pos(cp) for v,cp in zip(av, cpos)]
+        
+        [v.set_pos(cp) for v, cp in zip(av, cpos)]
 
 
     """
@@ -319,7 +372,7 @@ class PVM_Evolver:
         dt = self.dt
         n_steps = int(T/dt)
 
-        c_time = t_start
+#        c_time = t_start
         c_pos = self.initial_positions
 
         for i in tqdm(np.arange(n_steps-1) + 1):
@@ -327,15 +380,16 @@ class PVM_Evolver:
             # This function call also appends a new set of circulations to self.circulations
             c_pos = self.annihilate(c_pos, i)
             
-            #Spawn
+            #Spawn. As annihilate() adds a new circulation matrix, spawn() only modifies it
+            c_pos = self.spawn(c_pos, i)
 
             # Adaptively evolve one timestep forward
-            c_pos = self.rk4_error_tol(c_pos, c_time)
-            self.update_vortex_positions(c_pos, c_time)
+            c_pos = self.rk4_error_tol(c_pos, i)
+            self.update_vortex_positions(c_pos, i)
 
             # Add the corresp trajectory
             self.trajectories.append(c_pos)
-            c_time = t_start + i*dt
+#            c_time = t_start + i*dt
 
 
             # c_pos = self.update_spawning(c_pos)   ## todo: suppose we wish to compare to GPE sim, then we'd add spawning here

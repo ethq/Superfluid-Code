@@ -29,7 +29,7 @@ class PVM_Conventions:
     def save_conventions(self, max_n_vortices, T, annihilation_threshold, seed, data_type):
         atr = ("%f" % annihilation_threshold).rstrip('0')
         
-        fname = "Vortex" + data_type + "_N%d_T%d_ATR" % (max_n_vortices, T) + atr + "_%d" % seed
+        fname = "Vortex" + data_type + "_N%d_T%d_ATR" % (max_n_vortices, T) + atr# + "_%d" % seed
         fname = fname + '.dat'
         
         return fname

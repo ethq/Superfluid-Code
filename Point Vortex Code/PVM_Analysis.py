@@ -74,7 +74,7 @@ class PVM_Analysis:
     
     # Run a complete cluster analysis for all time frames
     # find_dipoles must be ran prior to find_clusters; two parts of the algorithm
-    def cluster_analysis(self):
+    def full_analysis(self):
         # Loop over time
         for i in np.arange(self.settings['n_steps']):
             # Construct configuration with id map
@@ -83,6 +83,9 @@ class PVM_Analysis:
             # Detect dipoles and clusters
             self.dipoles.append( self.find_dipoles(cfg) )
             self.clusters.append( self.find_clusters(cfg) )
+            
+            # Compute energy
+            self.energies.append( self.get_energy(i) )
         
         print('Cluster analysis complete')
         
@@ -259,8 +262,21 @@ class PVM_Analysis:
                 ann = ann + 1
         return ann
     
-    def energy(self, pos):
-        pass    
+    """
+    Calculates the energy of the system in a marvelously inefficient but good-looking way
+    """
+    def get_energy(self, frame):
+        H = 0
+        
+        for v1 in self.vortices:
+            for v2 in self.vortices:
+                if v1.id == v2.id:
+                    continue
+                
+                r2 = eucl_dist(v1.get_pos(frame), v2.get_pos(frame))
+                H = H - 1/(np.pi)*np.log(r2)
+        
+        return H
     
     """
     
@@ -284,6 +300,6 @@ class PVM_Analysis:
     
     
 if __name__ == '__main__':
-    pvm = PVM_Analysis('N10_T5_ATR0.01_90376.dat')
-    pvm.cluster_analysis()
+    pvm = PVM_Analysis('N30_T5_ATR0.01.dat')
+    pvm.full_analysis()
     pvm.save()
