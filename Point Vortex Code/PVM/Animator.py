@@ -15,23 +15,36 @@ from tqdm import tqdm
 import collections
 import pickle
 
-from PVM.Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices, get_active_vortex_cfg, get_vortex_by_id
-from PVM.Vortex import Vortex
-from PVM.PlotChoice import PlotChoice
-
+from .Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices, get_active_vortex_cfg, get_vortex_by_id
+from .Vortex import Vortex
+from .PlotChoice import PlotChoice
+from .Conventions import Conventions
 
 class Animator:
-    def __init__(self, fname_param = None, evolution_data = None, analysis_data = None):
+    def __init__(self, 
+                 fname = None,
+                 evolution_data = None,
+                 analysis_data = None,
+                 animate_trails = True):
+        
+        # If file passed, we set this variable to that eventual saving is done using the same convention
+        self.fname = None
+        
         # If filename is given, read it
-        if fname_param:
-            fname_evolution = 'VortexEvolution_' + fname_param
-            fname_analysis = 'VortexAnalysis_' + fname_param
+        if fname:
+            fname_evolution = 'Datafiles/Evolution_' + fname + '.dat'
+            fname_analysis = 'Datafiles/Analysis_' + fname + '.dat'
             
             ef = open(fname_evolution, "rb")
             af = open(fname_analysis, "rb")
             
             evolution_data = pickle.load(ef)
             analysis_data = pickle.load(af)
+            
+            # If saving animation and file is passed, make sure to save using the same convention
+            self.fname = 'Animations/' + fname + '.mp4'
+            
+        
         
         # Otherwise, we assume data has been passed directly
         self.settings = evolution_data['settings']
@@ -42,13 +55,17 @@ class Animator:
         self.clusters = analysis_data['clusters']
         self.energies = analysis_data['energies']
         
+        # Other params
+        self.animate_trails = animate_trails
+        
         # Take relative to initial energy
         self.energies = self.energies - self.energies[0]
         
         # Remembering to close the files
-        if fname_param:
+        if fname:
             ef.close()
             af.close()
+            
             
         self.n_steps = self.settings['n_steps']
             
@@ -59,8 +76,7 @@ class Animator:
         self.trail_lines = []
         
         # Various axes
-        self.pvm_ax = None
-        self.energy_ax = None
+        self.axes = {}
         
         # vortices spinning cw(ccw) are coloured black(red)
         self.vortex_colours = {-1:'#383535', 1:'#bd2b2b'} # Indexed by ciculation
@@ -89,6 +105,30 @@ class Animator:
             raise ValueError('Invalid choice encountered in choose_plot(), PVM animation class')
         
         self.to_plot = choice
+
+    """
+    Could normalize to average energy per dipole, but probably have to do quite a few runs to get this statistic -
+    which must also be obtained from some sort of stationary state
+    """
+    def update_energyPerVortex(self, i):
+        # Avoiding some limit issues on the plot
+        if i < 2 or i > len(self.trajectories)-1:
+            return
+        
+        # Restrict ourselves to plotting the last n energies
+        n_energies = 500
+        ax = self.axes['energyPerVortex']
+        
+        start_i = np.max([i-n_energies, 0])
+        
+        times = np.linspace(start_i, i, i-start_i+1).astype(int)
+        energies = self.energies[start_i:i+1]/len(self.circulations[i][0, :])
+        
+        ax.get_lines()[0].set_xdata(times)
+        ax.get_lines()[0].set_ydata(energies)
+        
+        ax.set_xlim([start_i, i])
+        ax.set_ylim([0, 1+np.max(energies)])
     
     def update_energies(self, i):
         # Avoiding some limit issues on the plot
@@ -97,7 +137,7 @@ class Animator:
         
         # Restrict ourselves to plotting the last n energies
         n_energies = 500
-        ax = self.energy_ax
+        ax = self.axes['energy']
         
         start_i = np.max([i-n_energies, 0])
         
@@ -108,14 +148,43 @@ class Animator:
         ax.get_lines()[0].set_ydata(energies)
         
         ax.set_xlim([start_i, i])
-        ax.set_ylim([np.min(energies), np.max(energies)])
+        ax.set_ylim([0, 1+np.max(energies)])
+        
+    def update_numberOfVortices(self, i):
+        if i < 2 or i > len(self.trajectories)-1:
+            return
+        
+        n_numbers = 500
+        ax = self.axes['numberOfVortices']
+        
+        # Recall line order as they are constructed:
+        # [total, free, dipoles, clusters]
+        lines = ax.get_lines()
+        
+        # slightly sneaky way to get current number of active vortices
+        total = len(self.circulations[i][0, :])
+        dipoles = len(self.dipoles[i])
+        clusters = len(self.clusters[i])
+        free = total-dipoles-clusters
+        
+        data = [total, free, dipoles, clusters]
+        
+        start_i = np.max([i-n_numbers, 0])
+        
+        times = np.linspace(start_i, i, i-start_i+1).astype(int)
+        
+        for i in np.arange(4):
+            lines[i].set_xdata(times)
+            lines[i].set_ydata(data[i])
+            
+        ax.set_xlim([start_i, i])
+        ax.set_ylim([0, 1+np.max(data)])
         
     
-    # FuncAnimation callback function, in turn calls functions to update our plot
-    def animation_update(self, i):
-        self.update_energies(i)
-        self.update_trajectories(i)
-        
+    """
+    Since I am clearning all lines anyway, there is little point in keeping the y_lines as class members
+    TODO: just store the axes then use get_lines() here and proceed as before
+    """
     def update_trajectories(self, i):
         # Are we done?
         if i >= self.n_steps:
@@ -204,8 +273,8 @@ class Animator:
             self.vortex_lines[j].set_marker(marker)
             self.vortex_lines[j].set_color(self.vortex_colours[v.circ])
 
-            # And plot its trail - unless we just started animating
-            if not i:
+            # And plot its trail - unless we just started animating or if we're not supposed to
+            if not i or not self.animate_trails:
                 continue
             
             # Get the trail in segments
@@ -239,16 +308,16 @@ class Animator:
         return segs
 
 
-    def axsetup_vortices(self, f):
+    def axsetup_vortices(self):
+        ax = self.axes['vortices']
+        
         # First add axis for the animation of vortices
-        ax = f.add_subplot(211, polar = True)
+#        ax = f.add_subplot(211, polar = True)
         ax.grid(False)
         ax.set_xticklabels([])    # Remove radial labels
         ax.set_yticklabels([])    # Remove angular labels
 
         ax.set_ylim([0, self.settings['domain_radius']])    # And this turns out to be the radial coord. #consistency
-        
-        self.pvm_ax = ax
         
         # Overconstructing axes for dipole/cluster lines, this can be optimized. At the very least, they need only be half size of vlines
         vlines = []
@@ -269,52 +338,169 @@ class Animator:
         self.dipole_lines = dlines
         self.cluster_lines = clines
             
-    def axsetup_energy(self, f):
-        axe = f.add_subplot(212)
+    def axsetup_energy(self):
+        axe = self.axes['energy']
+        
         axe.grid(False)
         axe.plot([], [])
         axe.set_title('Energy deviation')
         axe.set_xlabel('Frame')
         axe.set_ylabel('Deviation')
-        self.energy_ax = axe
+    
+    """
+    Sets up layout given a choice. Assumes the corresponding axes have been set up and are contained in self.axes
+    """
+    def layout(self, choice):
+        # Gather settings with the same layout
+        vortices_one_statistic = [PlotChoice.vortices_energy, 
+                            PlotChoice.vortices_energyPerVortex,
+                            PlotChoice.vortices_numberOfVortices]
+        
+        
+        if choice in vortices_one_statistic:
+            # get the relevant statistic axis
+            if choice == PlotChoice.vortices_numberOfVortices:
+                ax = self.axes['numberOfVortices']  
+            elif choice == PlotChoice.vortices_energyPerVortex:
+                ax = self.axes['energyPerVortex']
+            elif choice == PlotChoice.vortices_energy:
+                ax = self.axes['energy']
+            
+            # Adjust the statistic axis
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0, box.width, box.height*0.5])
+        
+            # Adjust the vortex axis
+            ax = self.axes['vortices']
+            box = ax.get_position()
+            xratio = 1.8
+            yratio = 1.8
+            nbox = [box.x0-box.width*(xratio-1)/2, box.y0-box.height*(yratio-1)/2, box.width*xratio, box.height*yratio]
+            
+            # A little further down..
+            nbox[-1] = nbox[-1] - 0.1
+            ax.set_position(nbox)    
     
     def axsetup_energyPerVortex(self, f):
-        pass
+        axe = self.axes['energyPerVortex']
+        
+        axe.grid(False)
+        axe.plot([], [])
+        axe.set_title('Energy per vortex')
+        axe.set_xlabel('Frame')
+        axe.set_ylabel('Energy')
     
     def axsetup_numberOfVortices(self, f):
-        pass
+        axe = self.axes['numberOfVortices']
+        
+        axe.grid(False)
+        
+        # Create 4 line objects: all vortices, free vortices, dipoles and clusters
+        axe.plot([], [], label = 'Total vortices')
+        axe.plot([], [], label = 'Free vortices')
+        axe.plot([], [], label = 'Dipoles')
+        axe.plot([], [], label = 'Clusters')
+        
+        
+        axe.set_title('Number statistics')
+        axe.set_xlabel('Frame')
+        axe.set_ylabel('Count')
+        axe.legend()
     
-    def animate_trajectories(self):
+    
+    """
+    Saves animation of the datafile passed in the constructor.
+    choice:        [string] allowed values enumerated in PlotChoice class
+    """
+    def save_animation(self, choice):
+        self.animate(choice, action = 'save')
+    
+    """
+    Shows animation of the datafile passed in the constructor.f
+    Wrapped by save_animation and show_animation
+    
+    choice:        [string] allowed values enumerated in PlotChoice class
+    """
+    def show_animation(self, choice):
+        self.animate(choice, action = 'show')
+    
+    """
+    Animates the datafile passed in the constructor. Wrapped by save_animation and show_animation
+    
+    choice:        [string] allowed values enumerated in PlotChoice class
+    action:        [string] either 'show' or 'save. 
+    """
+    def animate(self, choice, action = 'save'):
         f = plt.figure()
         
-        # Determine which axes need to be set up based on our choice of what to plot
-        # Can go catastrophically wrong as I have not implemented error checking :D
-        setup = PlotChoice.choice2axis_setup(self.to_plot)
-        for s in setup:
-            getattr(self, s)(f)
+        update_funcs = None
         
-
-        
-        
-        # Adjust the size of axes
-        box = axe.get_position()
-        axe.set_position([box.x0, box.y0, box.width, box.height*0.5])
-        
-        box = ax.get_position()
-        xratio = 1.8
-        yratio = 1.8
-        nbox = [box.x0-box.width*(xratio-1)/2, box.y0-box.height*(yratio-1)/2, box.width*xratio, box.height*yratio]
-        
-        # A little further down..
-        nbox[-1] = nbox[-1] - 0.1
-        ax.set_position(nbox)
-        
-        
-        self.ani = animation.FuncAnimation(f, self.animation_update, interval = 1)
-        plt.show()
+        if choice == PlotChoice.vortices_energy:
+            self.axes['vortices'] = f.add_subplot(211, polar = True)
+            self.axes['energy'] = f.add_subplot(212)
             
-if __name__ == '__main__':
-    fname = 'N78_T5_ATR0.01.dat'  # Identifier
-    
-    pvm = Animator(fname)
-    pvm.animate_trajectories()
+            self.axsetup_vortices()
+            self.axsetup_energy()
+            
+            update_funcs = [self.update_energies,
+                            self.update_trajectories,
+                            ]
+        
+        elif choice == PlotChoice.vortices_numberOfVortices:
+            self.axes['vortices'] = f.add_subplot(211, polar = True)
+            self.axes['numberOfVortices'] = f.add_subplot(212)
+            
+            self.axsetup_vortices()
+            self.axsetup_number()
+            
+            update_funcs = [self.update_trajectories,
+                            self.update_numberOfVortices
+                            ]
+            
+        elif choice == PlotChoice.vortices_energyPerVortex:
+            self.axes['vortices'] = f.add_subplot(211, polar = True)
+            self.axes['energyPerVortex'] = f.add_subplot(212)
+            
+            self.axsetup_vortices()
+            self.axsetup_energypervortex()
+            
+            update_funcs = [self.update_trajectories,
+                            self.update_energyPerVortex
+                            ]
+        else:
+            raise ValueError('Unrecognized plotting choice in Animator')
+            
+        self.layout(choice)
+        
+        on_update = lambda i: [v(i) for v in update_funcs]
+        self.ani = animation.FuncAnimation(f, on_update, interval = 1)
+        
+        # Save to file if desired
+        if action == 'save':
+            # Set up writer
+            Writer = animation.writers['ffmpeg']
+            writer = Writer(fps=15, metadata=dict(artist='Second Cheesegrater to the Left'), bitrate=1800)
+            
+            # Try to ensure we save entire animation
+            self.ani.save_count = len(self.trajectories)
+            
+            if not self.fname:
+                self.fname = Conventions.save_conventions(self.settings['max_n_vortices'], 
+                                                      self.settings['total_time'],
+                                                      self.settings['annihilation_threshold'],
+                                                      self.settings['seed'],
+                                                      data_type = 'Animation')
+                
+                
+            
+            print('saving animation')
+            st = time.time()
+            self.ani.save(self.fname, writer = writer)
+            tt = time.time()-st
+            mins = tt // 60
+            sec = tt % 60
+            print('saving finished after %d min %d sec' % (mins, sec))
+        elif action == 'show':
+            plt.show()
+        else:
+            raise ValueError('Uknown action passed to Animator.animate()')

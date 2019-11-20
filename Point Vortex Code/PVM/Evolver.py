@@ -44,22 +44,24 @@ from PVM.Conventions import Conventions
 class Evolver:
 
     def __init__(self,
-                 n_vortices = 20,
+                 n_vortices = 30,
                  coords = None,
                  circ = None,
-                 T = 5,
+                 T = 50,
                  dt = 0.01,
                  tol = 1e-8,
                  max_iter = 15,
                  annihilation_threshold = 1e-2,
                  verbose = True,
-                 domain_radius = 5,
-                 initial_radius = 2,
+                 domain_radius = 3,
+                 initial_radius = 3,
                  spawn_sep = .1,
-                 spawn_rate = 1e7,
+                 spawn_rate = 10,
                  stirrer_rad = 1,
-                 stirrer_vel = .3
+                 stirrer_vel = .3,
+                 annihilate_on_boundary = True
                  ):
+        self.annihilate_on_boundary = annihilate_on_boundary
         self.initial_radius = initial_radius
         self.domain_radius = domain_radius
         self.n_vortices = n_vortices
@@ -69,8 +71,6 @@ class Evolver:
         self.tol = tol
         self.max_iter = max_iter
         self.verbose = verbose
-
-        self.conventions = Conventions()
 
         self.annihilation_threshold = annihilation_threshold
         self.circulations = []
@@ -93,8 +93,6 @@ class Evolver:
         else:
             assert len(circ) == 1   # each frame has a corresp circulation array. Hence expect [ initial_circ ]
             self.circulations = circ
-        
-        self.annihilation_map = collections.OrderedDict()
 
         self.trajectories = [ self.initial_positions ]
         
@@ -107,13 +105,13 @@ class Evolver:
         self.spawn_sep = spawn_sep
         self.stirrer_rad = stirrer_rad
         self.stirrer_vel = stirrer_vel
-        self.calc_spawning_times()
 
     # Generates vortex positions uniformly over unit disk
     def init_random_pos(self):
         # 5377
 #        seed = 32257 # single annihilation at thr = 1e-3
 #        seed = 44594 # double annihilation at thr = 1e-2
+#        seed = 96329
         seed = np.random.randint(10**5)
         np.random.seed(seed)
         self.seed = seed
@@ -134,34 +132,16 @@ class Evolver:
 
         self.circulations = [np.flip(np.kron(np.ones((self.n_vortices, 1)), c))]
     
-    def calc_spawning_times(self):
-        t = 0
-        lam = self.spawn_rate
-        hits = []
-        
-        if self.spawn_rate == -1:
-            return
-        
-        N = int(self.T/self.dt)
-        while t < N:
-            r = np.random.rand()
-            t = t - np.log(r/lam)
-            hits.append(t)
-        
-        self.spawn_times = np.floor(hits).astype(int)
-    
     # Spawns in vortex dipoles at a given rate, separation and position
-    # Does currently not support multispawn at a single time
+    # Note that this function DOUBLES time per iteration(!). (check by setting spawn_rate = 0 or comment out call)
+    # ^ depends on density/domain size/spawn rate of course. doubling at rate = 10, domain = 3
     def spawn(self, pos, t_frame):
-        # Spawn a vortex
-        if t_frame in self.spawn_times:
+        # Determine number of dipoles to spawn( for dt = 1e-2 and spawnrate ~ 1, this is mostly 1 or 0)
+        ndp = np.random.poisson(self.spawn_rate*self.dt)
+        
+        for _ in np.arange(ndp):
             if self.verbose:
-                tqdm.write("I be spawning a vortex dipole")
-            # Increase potential maximum, for animation reasons
-            self.max_n_vortices = self.max_n_vortices + 2
-            
-            # And adjust current vortex number
-            self.n_vortices = self.n_vortices + 2
+                tqdm.write("I be spawning %d vortex dipoles" % ndp)
             
             # Calculate spawn location
             omega = self.stirrer_vel/self.stirrer_rad
@@ -169,7 +149,38 @@ class Evolver:
             # This may be too coarse.. rescale?
             n_orbits = 10 # class variable
             t_rs = t_frame*2*np.pi*n_orbits/int(self.T/self.dt)
+            
             x, y = self.stirrer_rad*np.cos(omega*t_rs), self.stirrer_rad*np.sin(omega*t_rs)
+            
+            # we'd like to spawn vortices no closer than spawn_sep from any other vortex
+            # recursively attempt to do this at different locations max_attempts times
+            # if we hit max_attempts, we simply won't spawn
+            max_attempts = 10
+            ca = 0    # current attempt
+            
+            qp = np.array(pos) # so we can subtract of the position we have currently decided on
+            while ca < max_attempts:
+                ca = ca + 1
+                # Calculate distance vectors from spawn loc to all other vortices
+                dist_v = qp - np.array([[x,y]])
+                # Calculate the corresponding norm
+                dist_n = np.array([np.linalg.norm(v) for v in dist_v])
+                
+                # Are any closer than twice spawn sep? if so, update spawn loc and try again
+                # (Note: twice spawn sep, because this is the cm coordinate and we spawn dipoles at +- spawn sep from it)
+                if np.any(dist_n < 2*self.spawn_sep):
+                    # We add gaussian noise with std equal to spawn sep and mean zero
+                    dx, dy = np.random.normal(0, self.spawn_sep, 2)
+                    x = x + dx
+                    y = y + dy
+                    continue
+                
+                # No neighbours spotted - spawn it
+                break
+            
+            # Did we fail to find an isolated spot to spawn?
+            if ca == max_attempts:  # Note that this misses a correct location found at the last attempt. Just increase max_attempts if that's a problem
+                continue
             
             # Radial cm coordinates
             r, t = cart2pol(x, y)
@@ -177,11 +188,21 @@ class Evolver:
             # Adjust negative and positve spin positions radially
             rn, rp = r + self.spawn_sep, r - self.spawn_sep
             
+            # If we spawned outside boundary, try again
+            if rn > self.domain_radius or rp > self.domain_radius:
+                continue
+            
             # Reconstruct cartesian coordinates as it is what we use in evolution 
             xp, yp = pol2cart(rp, t)
             xn, yn = pol2cart(rn, t)
             
-            # Add to trajectory, circulations and vortex list
+            # Spawn is successful, so we update all relevant variables
+            
+            # Increase potential maximum, for animation reasons
+            self.max_n_vortices = self.max_n_vortices + 2
+            
+            # And adjust current vortex number
+            self.n_vortices = self.n_vortices + 2
             
             # Update vortex list
             vp = Vortex([xp, yp],  1, t_frame)
@@ -228,6 +249,8 @@ class Evolver:
 
         # Only annihilate opposite-signed vortices
         ai2 = np.array([])
+        
+        # TODO I have a sneaking suspicion zip(an_ind) would do exactly the same - no fancy footwork needed
 
         # Record where we are in the array. This is so we can check for uniqueness of vortex indices, so
         # that we do not attempt to annihilate the same vortex twice
@@ -250,13 +273,21 @@ class Evolver:
         assert (len(ai2) % 2) == 0
 #        an_ind = (ai2[ai2 >= 0]).astype(int) # 'elegant' enough, but if vortex 0 gets deleted... shit hits the fan.
         an_ind = ai2.astype(int)
+        
+        # TODO: remove the annihilation map, it is obsolete
+        
+        # Remove vortices that pass too close to the boundary(they annihilate with their image)
+        # Note we have doubled the threshold here - otherwise they just start orbit
+        rad_pos = np.array(cart2pol(pos))[:, 0]
+        for ri, r in enumerate(rad_pos):
+            if np.abs(self.domain_radius - r) < self.annihilation_threshold:
+                an_ind = np.append(an_ind, ri)
+        
 
         if len(an_ind) != 0:
             # Store which indices were annihilated at which time, lets us match up indices in the trajectories when animating
             amap = np.ones(self.n_vortices).astype(bool)
             amap[an_ind] = False
-            
-            self.annihilation_map[t_frame] = amap
             
             # Update vortex count (used to dynamically generate images in rk4 etc)
             self.n_vortices = self.n_vortices - len(an_ind)
@@ -395,12 +426,9 @@ class Evolver:
             self.trajectories.append(c_pos)
 #            c_time = t_start + i*dt
 
-
-            # c_pos = self.update_spawning(c_pos)   ## todo: suppose we wish to compare to GPE sim, then we'd add spawning here
-
         tt = time.time() - ts
         if self.verbose:
-            print('rk4_fulltime complete after %.2f s' % tt)
+            print('evolution complete after %.2f s' % tt)
             
     
     def get_trajectory_data(self):
@@ -432,7 +460,7 @@ class Evolver:
     
     def save(self, fname = None):
         if fname == None:
-            fname = self.conventions.save_conventions(self.max_n_vortices, 
+            fname = Conventions.save_conventions(self.max_n_vortices, 
                                                       self.T, 
                                                       self.annihilation_threshold,
                                                       self.seed,

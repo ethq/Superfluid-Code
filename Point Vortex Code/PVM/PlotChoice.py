@@ -12,9 +12,9 @@ Helps dynamically determine which functions Animator uses to setup the relevant 
 
 """
 class PlotChoice:
-    vortices_energy = 'Vortices_Energy'
-    vortices_numberOfVortices = 'Vortices_NumberOfVortices'
-    vortices_energyPerVortex = 'Vortices_EnergyPerVortex'
+    vortices_energy = 'vortices_energy'
+    vortices_numberOfVortices = 'vortices_numberOfVortices'
+    vortices_energyPerVortex = 'vortices_energyPerVortex'
     
     
     def get_possible_values():
@@ -23,18 +23,3 @@ class PlotChoice:
             PlotChoice.vortices_energyPerVortex,
             PlotChoice.vortices_numberOfVortices
             ]
-        
-    def choice2axis_setup(c):
-        # Map to axis setup functions in Animator class
-        # Kept here to avoid having it as a class property
-        choice2axis = {
-            'Vortices_Energy': ['axsetup_vortices', 'axsetup_energy'],
-            'Vortices_NumberOfVortices': ['axsetup_vortices', 'axsetup_energyPerVortex'],
-            'Vortices_EnergyPerVortex': ['axsetup_vortices', 'axsetup_numberOfVortices']
-            }
-        
-        # Shouldn't be possible to get this far with an incorrect choice but we'll check anyway
-        if not c in choice2axis.keys():
-            raise ValueError('Invalid choice encountered in PlotChoice.choice2axis_setup()')
-            
-        return choice2axis[c]

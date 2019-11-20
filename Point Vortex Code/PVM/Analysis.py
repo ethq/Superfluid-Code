@@ -53,7 +53,7 @@ class Analysis:
         assert fname or traj_data
         
         if fname:
-            fname = 'VortexEvolution_' + fname
+            fname = 'Datafiles/Evolution_' + fname
             with open(fname, "rb") as f:
                 data = pickle.load(f)                
         else:
@@ -65,8 +65,6 @@ class Analysis:
         self.vortices = data['vortices']
         self.trajectories = data['trajectories']
         self.circulations = data['circulations']
-        
-        self.conventions = Conventions()
         
         self.dipoles = []
         self.clusters = []
@@ -90,7 +88,7 @@ class Analysis:
             
         self.energies = np.array(self.energies)
         
-        print('Cluster analysis complete')
+        print('analysis complete')
         
         return {
                 'dipoles': self.dipoles,
@@ -209,13 +207,19 @@ class Analysis:
     """ 
     cfg is expected of form (N,2) in cartesian coordinates
     tid is needed to extract the corresp. circulations
-    domain not quite isotropic, correction to shell area needed
+    domain not isotropic, correction to shell area needed
+    current assumption is a circular domain
     """
-    def pair_correlation(self, cfg, tid):
+    def weighted_pair_correlation(self, cfg, tid):
+        # Shell thickness
         dr = 0.1
         
         # A vortex can have neighbours up to r = 2d away, if it is on one side of the domain
         bins = np.linspace(0, 2*self.domain_radius, int(2*self.domain_radius/dr) + 1)
+        
+        circ = self.circulations[tid][0, :]
+        
+        assert len(circ) == len(cfg)
         
         g = np.zeros_like(bins)
         # For each point r, loop over all vortices. 
@@ -223,13 +227,24 @@ class Analysis:
         
         # Vortex number - possibly we should use an ensemble average to calculate <N> and rho
         N = len(cfg)
+        
+        # Iterate over shells at various radi
         for i, r in enumerate(bins):
-            
+            # For a fixed shell, find the contribution from each vortex
+            total = 0
             for j, v in enumerate(cfg):
+                # Calculated the weighted shell area
                 av = self.shell_area(v)
+                
+                # Find all neighbours contained in this shell
                 ann = self.find_an(cfg, j, r, dr)
                 
-            g[i] = ann/av # remember to weight by circulation if desired
+                # Weight them by their circulation and sum
+                ann = np.sum([circ[k] for k in ann])
+                
+                total = total + ann*circ[i]
+                
+            g[i] = total/(av*N) # remember to weight by circulation if desired
         
         # Do not weight individual pair correlations yet - I think we want to do this over an ensemble.
         return g[i], N, N/(np.pi*self.domain_radius**2)
@@ -250,11 +265,20 @@ class Analysis:
     
     """ 
     Finds all neighbours  within shell at r(dr)
+    
+    Input:
+        cfg: configuration, expected in the form of an (N,2) array of cartesian coordinates
+        i:   target on which the shell is centered
+        r:   shell radius
+        dr:  shell thickness
+        
+    Output:
+        list containing the indices of the neighbours within the shell
     """ 
     def find_an(self, cfg, i, r, dr):
         cv = cfg[i]
         
-        ann = 0
+        ann = []
         for j, v in enumerate(cfg):
             if j == i:
                 # don't calculate self-distance. needless optimization
@@ -263,7 +287,7 @@ class Analysis:
             d = self.eucl_dist(cv, v)
             
             if d > r and d < r + dr:
-                ann = ann + 1
+                ann.append(j)
         return ann
     
     """
@@ -271,7 +295,6 @@ class Analysis:
     """
     def get_energy(self, frame):
         H = 0
-        
         
         for v1 in self.vortices:
             if not v1.is_alive(frame):
@@ -305,7 +328,7 @@ class Analysis:
     
     """
     def save(self):
-        fname = self.conventions.save_conventions(self.settings['max_n_vortices'], 
+        fname = Conventions.save_conventions(self.settings['max_n_vortices'], 
                                                   self.settings['total_time'], 
                                                   self.settings['annihilation_threshold'], 
                                                   self.settings['seed'],
