@@ -26,6 +26,46 @@ def cart2pol(x, y = None):
     else:
         return cart2pol_scalar(x,y)
 
+# Given two points o1(x,y), o2(x,y) and a radius R, determines:
+#   - the point of collision with the disk
+#   - the reflection of o2-o1 about the unit normal of the disk
+# It is assumed that the centre of the disk is the origin
+        
+# If get_cp is set, the tuple(reflected vector, collision point) is returned instead of just the vector
+def reflect(o1, o2, R, get_cp = False):
+    o1 = np.array(o1)
+    o2 = np.array(o2)
+    
+    # We first find the point of collision    
+    do = np.linalg.norm(o2-o1)
+    
+    # Scale factor for the connecting vector o2-o1
+    alpha = 1/do**2*(-(np.dot(o1, o2) - np.dot(o1, o1)) + np.sqrt(do**2*R**2 + np.dot(o1, o2)**2 - np.dot(o1, o1)*np.dot(o2, o2)))
+    
+    # Point of collision
+    p = o1 + alpha*(o2-o1)
+    
+    # Length of reflected vector
+    lref = do - np.linalg.norm(p-o2)
+    
+    # Unit normal at collision point
+    n = -p/np.linalg.norm(p)
+    
+    # Vector to be reflected
+    v1 = p - o1
+    
+    # Reflected vector
+    v2 = v1 - 2*n*(1-np.dot(v1,n))
+    
+    # Fix the length
+    v2 = v2/np.linalg.norm(v2)*lref
+    
+    # And done
+    if get_cp:
+        return (v2, p)
+    return v2
+    
+
 def cart2pol_scalar(x, y):
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)
@@ -36,6 +76,14 @@ def pol2cart(rho, phi):
     y = rho * np.sin(phi)
     return(x, y)
     
+# Takes a hexadecimal string and spits out the corresp RGB tuple, normalized to [0, 1]
+def hex2one(h):
+    h = h.lstrip('#')
+    rgb = tuple(int(h[i:i+2], 16)/255 for i in (0, 2, 4))
+    return rgb
+    
+# Shitty alternative to numpy.linalg.norm - also, this returns the square... which I have used several places ugh
+# TODO: clean up all occurences of this crap in project
 def eucl_dist(v1, v2):
     d = v1-v2
     return d @ d.T

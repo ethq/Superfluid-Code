@@ -38,6 +38,11 @@ class Vortex:
         
         self.pos = pos
         self.trajectory.append(pos)
+        
+    def pop_pos(self):
+        assert len(self.trajectory >= 2)
+        self.pos = self.trajectory[-2]
+        self.trajectory.pop()
     
     
     """
@@ -53,8 +58,6 @@ class Vortex:
        
         # .. and image position
         impos = R**2*sp/r2
-        if len(impos) > 2:
-            print('OOANONFOANSDFOKASDF', R**2, type(sp))
         
         return impos
     

@@ -23,12 +23,21 @@ Evolves a given initial configuration in time
         spawn_rate:        [Integer] Rate of Poisson process, relative to normalized max timesteps N = 1
         stirrer_rad:       [Float] Radius of stirring object
         stirrer_vel:       [Float] Velocity of stirring object
-
+        
+        ## Options for Monte-Carlo generation of states
+        temperature:       [Float] Exactly what you think it is
+        mc_skip:          [Integer] If specified, evolves system mc_sweep steps before saving a state
+        mc_burn:           [Integer] If specified, evolves mc_burn steps before saving states
+        mc_steps:          [Integer] Number of metropolis sweeps to do
+        mc_enstrophy_tolerance: [Float] Tolerance for conservation of enstrophy
+        mc_bounding_move_ratio: [Float] Divides the domain_radius by this to obtain bounding box for 
+                                        where an mcmc step can move a vortex
 
 """
 
 import numpy as np
 import time
+import pathlib
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 import matplotlib.animation as animation
@@ -41,36 +50,62 @@ from PVM.Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices
 from PVM.Vortex import Vortex
 from PVM.Conventions import Conventions
 
+# For access to methods that calculate energy/spin
+from PVM.Analysis import Analysis
+
 class Evolver:
 
     def __init__(self,
-                 n_vortices = 20,
+                 n_vortices = 10,
                  coords = None,
                  circ = None,
-                 T = 5,
+                 T = 50,
                  dt = 0.01,
                  tol = 1e-8,
                  max_iter = 15,
                  annihilation_threshold = 1e-2,
                  verbose = True,
-                 domain_radius = 5,
-                 initial_radius = 2,
+                 domain_radius = 3,
+                 gamma = 0.01,
+                 initial_radius = 3,
                  spawn_sep = .1,
-                 spawn_rate = 1e7,
+                 spawn_rate = 0,
                  stirrer_rad = 1,
-                 stirrer_vel = .3
+                 stirrer_vel = .3,
+                 annihilate_on_boundary = True,
+                 warm_file = None,
+                 temperature = 0,
+                 mc_skip = -1,
+                 mc_burn = -1,
+                 mc_steps = 100,
+                 mc_enstrophy_tolerance = 1e-10,
+                 mc_bounding_move_ratio = 10,
                  ):
+        if warm_file:
+            self.warm_start(warm_file)
+            return
+        
+        self.annihilate_on_boundary = annihilate_on_boundary
         self.initial_radius = initial_radius
         self.domain_radius = domain_radius
         self.n_vortices = n_vortices
         self.max_n_vortices = n_vortices
         self.T = T
+
+        self.mc_settings = {
+                'temperature': temperature,
+                'skip': mc_skip,
+                'burn': mc_burn,
+                'steps': mc_steps,
+                'enstrophy_tol': mc_enstrophy_tolerance,
+                'bbox': domain_radius/mc_bounding_move_ratio
+                }
+        
         self.dt = dt
         self.tol = tol
         self.max_iter = max_iter
         self.verbose = verbose
-
-        self.conventions = Conventions()
+        self.gamma = gamma
 
         self.annihilation_threshold = annihilation_threshold
         self.circulations = []
@@ -83,9 +118,11 @@ class Evolver:
             assert n_vortices == 2
             self.initial_positions = np.array([[0.5*np.cos(np.pi/4), 0.5*np.cos(np.pi/4)],
                                        [0.5*np.cos(np.pi), 0.5*np.sin(np.pi)]])
+            self.seed = -1
         elif coords == 'opposite_2':
             assert n_vortices == 2
             self.initial_positions = np.array([[.5, 0], [-.5, 0]])
+            self.seed = -1
         else:
             self.initial_positions = coords
         if circ == None:
@@ -93,8 +130,6 @@ class Evolver:
         else:
             assert len(circ) == 1   # each frame has a corresp circulation array. Hence expect [ initial_circ ]
             self.circulations = circ
-        
-        self.annihilation_map = collections.OrderedDict()
 
         self.trajectories = [ self.initial_positions ]
         
@@ -107,13 +142,22 @@ class Evolver:
         self.spawn_sep = spawn_sep
         self.stirrer_rad = stirrer_rad
         self.stirrer_vel = stirrer_vel
-        self.calc_spawning_times()
+        
+    def warm_start(self, fname):
+        fname = 'Datafiles/Evolution_' + fname
+        with open(fname, "rb") as f:
+            data = pickle.load(f)                
+        
+        self.set_trajectory_data(data)
+        
+        # ... and then evolve another batch forward
 
     # Generates vortex positions uniformly over unit disk
     def init_random_pos(self):
         # 5377
 #        seed = 32257 # single annihilation at thr = 1e-3
 #        seed = 44594 # double annihilation at thr = 1e-2
+#        seed = 96329
         seed = np.random.randint(10**5)
         np.random.seed(seed)
         self.seed = seed
@@ -134,34 +178,16 @@ class Evolver:
 
         self.circulations = [np.flip(np.kron(np.ones((self.n_vortices, 1)), c))]
     
-    def calc_spawning_times(self):
-        t = 0
-        lam = self.spawn_rate
-        hits = []
-        
-        if self.spawn_rate == -1:
-            return
-        
-        N = int(self.T/self.dt)
-        while t < N:
-            r = np.random.rand()
-            t = t - np.log(r/lam)
-            hits.append(t)
-        
-        self.spawn_times = np.floor(hits).astype(int)
-    
     # Spawns in vortex dipoles at a given rate, separation and position
-    # Does currently not support multispawn at a single time
+    # Note that this function DOUBLES time per iteration(!). (check by setting spawn_rate = 0 or comment out call)
+    # ^ depends on density/domain size/spawn rate of course. doubling at rate = 10, domain = 3
     def spawn(self, pos, t_frame):
-        # Spawn a vortex
-        if t_frame in self.spawn_times:
+        # Determine number of dipoles to spawn( for dt = 1e-2 and spawnrate ~ 1, this is mostly 1 or 0)
+        ndp = np.random.poisson(self.spawn_rate*self.dt)
+        
+        for _ in np.arange(ndp):
             if self.verbose:
-                tqdm.write("I be spawning a vortex dipole")
-            # Increase potential maximum, for animation reasons
-            self.max_n_vortices = self.max_n_vortices + 2
-            
-            # And adjust current vortex number
-            self.n_vortices = self.n_vortices + 2
+                tqdm.write("I be spawning %d vortex dipoles" % ndp)
             
             # Calculate spawn location
             omega = self.stirrer_vel/self.stirrer_rad
@@ -169,7 +195,38 @@ class Evolver:
             # This may be too coarse.. rescale?
             n_orbits = 10 # class variable
             t_rs = t_frame*2*np.pi*n_orbits/int(self.T/self.dt)
+            
             x, y = self.stirrer_rad*np.cos(omega*t_rs), self.stirrer_rad*np.sin(omega*t_rs)
+            
+            # we'd like to spawn vortices no closer than spawn_sep from any other vortex
+            # recursively attempt to do this at different locations max_attempts times
+            # if we hit max_attempts, we simply won't spawn
+            max_attempts = 10
+            ca = 0    # current attempt
+            
+            qp = np.array(pos) # so we can subtract of the position we have currently decided on
+            while ca < max_attempts:
+                ca = ca + 1
+                # Calculate distance vectors from spawn loc to all other vortices
+                dist_v = qp - np.array([[x,y]])
+                # Calculate the corresponding norm
+                dist_n = np.array([np.linalg.norm(v) for v in dist_v])
+                
+                # Are any closer than twice spawn sep? if so, update spawn loc and try again
+                # (Note: twice spawn sep, because this is the cm coordinate and we spawn dipoles at +- spawn sep from it)
+                if np.any(dist_n < 2*self.spawn_sep):
+                    # We add gaussian noise with std equal to spawn sep and mean zero
+                    dx, dy = np.random.normal(0, self.spawn_sep, 2)
+                    x = x + dx
+                    y = y + dy
+                    continue
+                
+                # No neighbours spotted - spawn it
+                break
+            
+            # Did we fail to find an isolated spot to spawn?
+            if ca == max_attempts:  # Note that this misses a correct location found at the last attempt. Just increase max_attempts if that's a problem
+                continue
             
             # Radial cm coordinates
             r, t = cart2pol(x, y)
@@ -177,11 +234,21 @@ class Evolver:
             # Adjust negative and positve spin positions radially
             rn, rp = r + self.spawn_sep, r - self.spawn_sep
             
+            # If we spawned outside boundary, try again
+            if rn > self.domain_radius or rp > self.domain_radius:
+                continue
+            
             # Reconstruct cartesian coordinates as it is what we use in evolution 
             xp, yp = pol2cart(rp, t)
             xn, yn = pol2cart(rn, t)
             
-            # Add to trajectory, circulations and vortex list
+            # Spawn is successful, so we update all relevant variables
+            
+            # Increase potential maximum, for animation reasons
+            self.max_n_vortices = self.max_n_vortices + 2
+            
+            # And adjust current vortex number
+            self.n_vortices = self.n_vortices + 2
             
             # Update vortex list
             vp = Vortex([xp, yp],  1, t_frame)
@@ -228,6 +295,8 @@ class Evolver:
 
         # Only annihilate opposite-signed vortices
         ai2 = np.array([])
+        
+        # TODO I have a sneaking suspicion zip(an_ind) would do exactly the same - no fancy footwork needed
 
         # Record where we are in the array. This is so we can check for uniqueness of vortex indices, so
         # that we do not attempt to annihilate the same vortex twice
@@ -250,13 +319,19 @@ class Evolver:
         assert (len(ai2) % 2) == 0
 #        an_ind = (ai2[ai2 >= 0]).astype(int) # 'elegant' enough, but if vortex 0 gets deleted... shit hits the fan.
         an_ind = ai2.astype(int)
+        
+        # Remove vortices that pass too close to the boundary(they annihilate with their image)
+        # Note we have doubled the threshold here - otherwise they just start orbit
+        rad_pos = np.array(cart2pol(pos))[:, 0]
+        for ri, r in enumerate(rad_pos):
+            if np.abs(self.domain_radius - r) < self.annihilation_threshold:
+                an_ind = np.append(an_ind, ri)
+        
 
         if len(an_ind) != 0:
             # Store which indices were annihilated at which time, lets us match up indices in the trajectories when animating
             amap = np.ones(self.n_vortices).astype(bool)
             amap[an_ind] = False
-            
-            self.annihilation_map[t_frame] = amap
             
             # Update vortex count (used to dynamically generate images in rk4 etc)
             self.n_vortices = self.n_vortices - len(an_ind)
@@ -313,9 +388,18 @@ class Evolver:
 
         # calc vortex velocities
         circ = self.circulations[-1]
-
-        dx = -np.sum(circ.T*yy_temp.T/rr1, 0).T - np.sum(circ*yyp_temp.T/rr2, 1)
-        dy = np.sum(circ.T*xx_temp.T/rr1, 0).T + np.sum(circ*xxp_temp.T/rr2, 1)
+        
+        # Conservative dynamics
+        dx = -np.sum(circ.T*yy_temp.T/rr1, 0).T
+        dy = np.sum(circ.T*xx_temp.T/rr1, 0).T 
+        
+        # Contribution from images
+        dx = dx - np.sum(circ*yyp_temp.T/rr2, 1)
+        dy = dy + np.sum(circ*xxp_temp.T/rr2, 1)
+        
+        # Dissipative dynamics
+        dx = dx + self.gamma*np.sum(circ*circ.T*xx_temp.T/rr1, 0).T
+        dy = dy - self.gamma*np.sum(circ*circ.T*yy_temp.T/rr1, 0).T
 
         return 1/(2*np.pi)*np.hstack((dx[:, np.newaxis], dy[:, np.newaxis]))
 
@@ -395,29 +479,121 @@ class Evolver:
             self.trajectories.append(c_pos)
 #            c_time = t_start + i*dt
 
-
-            # c_pos = self.update_spawning(c_pos)   ## todo: suppose we wish to compare to GPE sim, then we'd add spawning here
-
         tt = time.time() - ts
         if self.verbose:
-            print('rk4_fulltime complete after %.2f s' % tt)
+            mins = tt // 60
+            sec = tt % 60
+            print('evolution complete after %d min %d sec' % (mins, sec))
+        
+        
+        
+    ########################
+    ### MONTE-CARLO CODE ###
+    ########################
+    
+    def metropolis(self):
+#        self.mc_settings = {
+#        'temperature': temperature,
+#        'burn': mc_burn,
+#        'steps': mc_steps,
+#        'enstrophy_tol': mc_enstrophy_tolerance
+#        }
+        
+        # Must be used with care, since there are no trajectories available etc.
+        analysis = Analysis(None, self.get_trajectory_data())
+        
+        # Get stacked energy
+        h_stacked = analysis.get_energy(0, True)
+        
+        # Equilibrate the system
+        for i in np.arange(self.mc_settings['burn'] - 1) + 1:
+            self.sweep(i, h_stacked, analysis) # not as bad as it looks, since obj-ref pass by value
             
+        # Begin sweeping for statistics
+        skip = self.mc_settings['skip']
+        
+        for j in (i+1) + np.arange(skip*self.mc_settings['steps']):
+            if j % skip:
+                # Save state
+                pass
+    
+    """
+    
+    Performs one full sweep of the metropolis algorithm, i.e. attempts to move each vortex once
+    
+    We use two modifications: if vortex hits bdry, then we move it using specular reflection
+    If this still fails to contain the vortex(as it might if it is moving parallelly close to bdry)
+    then we do not move it.
+    
+    Secondly, the enstrophy Es is conserved. Thus we add an additional acceptance check |Es'-Es| < tol
+    
+    """
+    def sweep(self, frame, h_stacked, analysis):
+        beta = 1 / temperature
+        es_tol = self.mc_settings['enstrophy_tol']
+        
+        # Stepping in order has a tendency to yield bad statistics. Not sure why...?
+        v_tar = list(range(len(self.vortices)))
+        np.random.shuffle(v_tar)
+        
+        # Do note that i and j are tuples
+        for i in v_tar:
+            # Grab target vortex
+            v = self.vortices[i]
+            
+            # Energy of vortex prior to moving it
+            energy_old = h_stacked[v.id]
+            
+            # Move vortex
+            
+            # Generate displacements from uniform distribution, center on zero and scale to boundingbox
+            dr = self.mc_settings['bbox']*(np.random.rand(2) - 1/2)
+            
+            # Reflect if necessary
+            if np.linalg.norm(v.get_pos() + dr) > self.domain_radius:
+                new_pos = reflect(v.get_pos(), v.get_pos() + dr, self.domain_radius)
+            
+            # Energy of vortex after moving it 
+            energy_new = analysis.get_energy(frame, False, v.id)
+            
+            # Energy change
+            delta_E = energy_new - energy_old
+            
+            # Rejection sampling. Note that if delta_E <= 0, exp >= 1 and we always accept
+            if np.random.uniform(0.0, 1.0) < np.exp(-beta * delta_E):
+                self.spin_config[i] = (self.spin_config[i] + dtheta) % 2*np.pi
+                self.energy = self.get_energy()
+        
+        
+    
+    def set_trajectory_data(self, data):
+        settings = data['settings']
+        
+        for k, v in settings.items():
+            setattr(self, k, v)
+        
+        self.trajectories = data['trajectories']
+        self.circulations = data['circulations']
+        self.vortices = data['vortices']
+        
+        
     
     def get_trajectory_data(self):
         settings = {
-                'total_time': self.T,
-                'timestep': self.dt,
+                'T': self.T,
+                'dt': self.dt,
                 'n_steps': int(self.T/self.dt),
                 'domain_radius': self.domain_radius,
                 'annihilation_threshold': self.annihilation_threshold,
-                'tolerance': self.tol,
+                'tol': self.tol,
                 'seed': self.seed,
                 'max_n_vortices': self.max_n_vortices,
                 'initial_radius': self.initial_radius,
-                 'spawn_sep': self.spawn_sep,
-                 'spawn_rate': self.spawn_rate,
-                 'stirrer_rad': self.stirrer_rad,
-                 'stirrer_vel': self.stirrer_vel
+                'spawn_sep': self.spawn_sep,
+                'spawn_rate': self.spawn_rate,
+                'stirrer_rad': self.stirrer_rad,
+                'stirrer_vel': self.stirrer_vel,
+                'gamma': self.gamma
                 }    
         
         data = {
@@ -432,11 +608,15 @@ class Evolver:
     
     def save(self, fname = None):
         if fname == None:
-            fname = self.conventions.save_conventions(self.max_n_vortices, 
+            fname = Conventions.save_conventions(self.max_n_vortices, 
                                                       self.T, 
                                                       self.annihilation_threshold,
                                                       self.seed,
                                                       'Evolution')
+            
+        path = pathlib.Path(fname)
+        if path.exists() and path.is_file():
+            raise ValueError('This seed has already been evolved.')
             
         data = self.get_trajectory_data()
         with open(fname, "wb") as f:
