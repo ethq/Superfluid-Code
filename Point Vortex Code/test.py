@@ -11,7 +11,7 @@ from numpy import random
 from PVM.Utilities import reflect, cart2pol, pol2cart
 import numpy as np
 
-x0 = [.2, .2]
+x0 = [.2, .8]
 r = cart2pol(np.array([x0]))
 
 

@@ -8,10 +8,11 @@ Created on Mon Nov 18 13:14:27 2019
 import PVM as pvm
     
 ev_config = {
-        'n_vortices': 25,
-        'gamma': 0.1,
-        'T': 5,
-        'spawn_rate': 0
+        'n_vortices': 10,
+        'gamma': 0.0,
+        'T': 2,
+        'spawn_rate': 0,
+        'coords': pvm.INIT_STRATEGY.DOUBLE_CLUSTER
         }
 
 evolver = pvm.Evolver(**ev_config)
