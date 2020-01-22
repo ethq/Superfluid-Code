@@ -94,20 +94,20 @@ class Animator:
                 'dipole_vortex': 'o',
                 'cluster_vortex': 's'
                 }
-        
-        # Support plotting/animating various data
-        self.to_plot = PlotChoice.vortices_energy
+    
         
     """
     Choose what to animate/plot. Possible values are enumerated in the PlotChoice class.
     """
-    def choose_plot(self, choice):
-        is_valid = choice in PlotChoice.get_possible_values()
+    def validate_plot_choice(self, choice):
+        
+        if type(choice) == str:
+            choice = [choice]
+        
+        is_valid = np.array([c in PlotChoice.get_possible_values() for c in choice]).all()
         
         if not is_valid:
             raise ValueError('Invalid choice encountered in choose_plot(), PVM animation class')
-        
-        self.to_plot = choice
 
     """
     Could normalize to average energy per dipole, but probably have to do quite a few runs to get this statistic -
@@ -115,7 +115,7 @@ class Animator:
     """
     def update_energyPerVortex(self, i):
         # Avoiding some limit issues on the plot
-        if i < 2 or i > len(self.trajectories)-1:
+        if i < 2 or i > len(self.trajectories) - 1:
             return
         
         # Restrict ourselves to plotting the last n energies
@@ -198,6 +198,8 @@ class Animator:
         pos = cfg['positions']
         ids = cfg['ids']
         
+        # TODO Could actually be replaced by an indexof call:
+        # we get id from dipoles/clusters, then indexof, use it for pos
         idmap = dict(zip(ids, np.linspace(0, len(ids)-1, len(ids)).astype(int)))
         
         dipoles = self.dipoles[i]
@@ -354,11 +356,50 @@ class Animator:
     """
     Sets up layout given a choice. Assumes the corresponding axes have been set up and are contained in self.axes
     """
-    def layout(self, choice):
+    def layout(self, choice, f):
         # Gather settings with the same layout
-        vortices_one_statistic = [PlotChoice.vortices_energy, 
-                            PlotChoice.vortices_energyPerVortex,
-                            PlotChoice.vortices_numberOfVortices]
+        vortices_one_statistic = [
+                PlotChoice.vortices_energy, 
+                PlotChoice.vortices_energyPerVortex,
+                PlotChoice.vortices_numberOfVortices,
+                            ]
+        
+        if PlotChoice.show_vortex(choice):
+            self.axes['vortices'] = f.add_subplot(1, 2, 1, polar = True)
+        
+        # We'll try with vortices on the left and statistics on the right. Should be easy to switch to sth else
+        f.add_subplot(1, 2, 1)
+        
+        plot_ctr = 2
+        for c in choice:
+            if c == PlotChoice.vortices:
+                continue
+            
+            self.axes[c] = f.add_subplot(3, 2, plot_ctr)
+            plot_ctr = plot_ctr + 2
+        
+        if choice == PlotChoice.vortices_energy:
+            self.axes['vortices'] = f.add_subplot(211, polar = True)
+            self.axes['energy'] = f.add_subplot(212)
+            
+            self.axsetup_vortices()
+            self.axsetup_energy()
+        
+        elif choice == PlotChoice.vortices_numberOfVortices:
+            self.axes['vortices'] = f.add_subplot(211, polar = True)
+            self.axes['numberOfVortices'] = f.add_subplot(212)
+            
+            self.axsetup_vortices()
+            self.axsetup_number()
+            
+        elif choice == PlotChoice.vortices_energyPerVortex:
+            self.axes['vortices'] = f.add_subplot(211, polar = True)
+            self.axes['energyPerVortex'] = f.add_subplot(212)
+            
+            self.axsetup_vortices()
+            self.axsetup_energypervortex()
+        else:
+            raise ValueError('Unrecognized plotting choice in Animator')
         
         
         if choice in vortices_one_statistic:
@@ -435,46 +476,31 @@ class Animator:
     action:        [string] either 'show' or 'save. 
     """
     def animate(self, choice, action = 'save'):
+        self.validate_plot_choice(choice)
+        
         f = plt.figure()
         
-        update_funcs = None
+        # Jump table to avoid enormous if-else block. Picks out a set of update_funcs depending on plot choice.
+        choice_table = {
+                PlotChoice.vortices_energy: [
+                        self.update_energies, 
+                        self.update_trajectories
+                        ],
+                PlotChoice.vortices_numberOfVortices: [
+                        self.update_trajectories,
+                        self.update_numberOfVortices
+                        ],
+                                                       
+                PlotChoice.vortices_energyPerVortex: [
+                        self.update_trajectories,
+                        self.update_energyPerVortex
+                        ]
+                }
         
-        if choice == PlotChoice.vortices_energy:
-            self.axes['vortices'] = f.add_subplot(211, polar = True)
-            self.axes['energy'] = f.add_subplot(212)
-            
-            self.axsetup_vortices()
-            self.axsetup_energy()
-            
-            update_funcs = [self.update_energies,
-                            self.update_trajectories,
-                            ]
+        update_funcs = choice_table.get(choice)
         
-        elif choice == PlotChoice.vortices_numberOfVortices:
-            self.axes['vortices'] = f.add_subplot(211, polar = True)
-            self.axes['numberOfVortices'] = f.add_subplot(212)
-            
-            self.axsetup_vortices()
-            self.axsetup_number()
-            
-            update_funcs = [self.update_trajectories,
-                            self.update_numberOfVortices
-                            ]
-            
-        elif choice == PlotChoice.vortices_energyPerVortex:
-            self.axes['vortices'] = f.add_subplot(211, polar = True)
-            self.axes['energyPerVortex'] = f.add_subplot(212)
-            
-            self.axsetup_vortices()
-            self.axsetup_energypervortex()
-            
-            update_funcs = [self.update_trajectories,
-                            self.update_energyPerVortex
-                            ]
-        else:
-            raise ValueError('Unrecognized plotting choice in Animator')
-            
-        self.layout(choice)
+        # Sets up axes & layout
+        self.layout(choice, f)
         
         on_update = lambda i: [v(i) for v in update_funcs]
         self.ani = animation.FuncAnimation(f, on_update, interval = 1)
@@ -502,7 +528,7 @@ class Animator:
             
             print('saving animation')
             st = time.time()
-            pbar = tqdm.tqdm(total = 250)
+            pbar = tqdm(total = 250)
             self.ani.save(self.fname, writer = writer)
             pbar.close()
             tt = time.time()-st

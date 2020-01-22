@@ -6,7 +6,25 @@ Created on Sat Nov 16 14:51:44 2019
 """
 
 import numpy as np
+import matplotlib.pyplot as plt
+import time as time
 
+class Timer:
+    def __init__(self, text = ''):
+        self.text = text
+        self.start = time.time()
+    
+    def stop(self):
+        self.stop = time.time()    
+        self.duration = self.stop - self.start
+    
+    def time(self):
+        hrs = self.duration // (60*60)
+        mins = self.duration % 60
+        secs = self.duration - hrs*60*60 - mins*60
+        
+        return f'{self.text} took: {hrs} hrs, {mins} mins and {secs} seconds.'
+    
 """
 Converts cartesian to polar coordinates. Returns [r, theta].
 If y is not supplied, array MUST BE of form
@@ -25,6 +43,24 @@ def cart2pol(x, y = None):
         return out
     else:
         return cart2pol_scalar(x,y)
+
+
+"""
+Appends to list but keeps length fixed by removing elements from start.
+arr: the list to append to
+v: the value to append
+l: the desired fixed length
+
+Note: this will likely kill performance. if metropolis needs this feature, it's better to 
+1) discard trajectories entirely
+2) use deques
+"""
+
+def append_fl(arr, v, l):
+    if len(arr) > l:
+        arr.pop(0)
+    arr.append(v)
+
 
 # Given two points o1(x,y), o2(x,y) and a radius R, determines:
 #   - the point of collision with the disk
@@ -69,7 +105,7 @@ def reflect(o1, o2, R, get_cp = False):
 def cart2pol_scalar(x, y):
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)
-    return(rho, phi)
+    return (rho, phi)
 
 def pol2cart(rho, phi):
     x = rho * np.cos(phi)
@@ -103,7 +139,7 @@ with_id: if supplied, also returns an array of vortex ids
 
 
 Returns:
-    (positions, circulations, [ids])
+    (positions, circulations, ids) as dictionary
 
 """
 def get_active_vortex_cfg(vortices, tid):
@@ -126,6 +162,27 @@ def get_active_vortex_cfg(vortices, tid):
             'circulations': circ,
             'ids': ids
             }
+
+"""
+
+Plots a vortex configuration, expected in the format spat out by get_active_vortex_cfg():
+    A dictionary with keys 'positions', 'circulations' and 'ids'. 'ids' are not used and may be left empty.
+
+"""
+def plot_cfg(cfg):
+    plt.figure()
+    
+    pos = cfg['positions']
+    c = np.array(cfg['circulations']).astype(int)
+    c = (c+1) // 2
+
+    mark = ['o', 'o']
+    colors = ['#88d19b', '#853128']
+    
+    for i, p in enumerate(pos):
+        plt.plot(p[0], p[1], mark[c[i]], color = colors[c[i]])
+        
+    plt.show()
 
 # Returns active vortices at time tid. By default finds all vortices that are currently active
 def get_active_vortices(vortices, tid = -np.Infinity):

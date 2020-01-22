@@ -13,7 +13,7 @@ Created on Tue Nov 19 15:37:47 2019
 #        'Animator'
 #        ]
 
-from .Evolver import Evolver
+from .Evolver import Evolver, Evolver_MCMC, INIT_STRATEGY
 from .Analysis import Analysis
 from .Animator import Animator
 from .PlotChoice import PlotChoice

@@ -26,10 +26,10 @@ Evolves a given initial configuration in time
         
         ## Options for Monte-Carlo generation of states
         temperature:       [Float] Exactly what you think it is
-        mc_skip:          [Integer] If specified, evolves system mc_sweep steps before saving a state
+        mc_skip:          [Integer] If specified, system saves a state every (frame % skip)'th frame
         mc_burn:           [Integer] If specified, evolves mc_burn steps before saving states
         mc_steps:          [Integer] Number of metropolis sweeps to do
-        mc_enstrophy_tolerance: [Float] Tolerance for conservation of enstrophy
+        mc_vorticity_tolerance: [Float] Tolerance for conservation of second moment of vorticity
         mc_bounding_move_ratio: [Float] Divides the domain_radius by this to obtain bounding box for 
                                         where an mcmc step can move a vortex
 
@@ -45,20 +45,61 @@ from itertools import chain, compress
 from tqdm import tqdm
 import collections
 import pickle
-from PVM.Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices
+from PVM.Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices, reflect, Timer
 
-from PVM.Vortex import Vortex
+from PVM.Vortex import Vortex, image_pos
 from PVM.Conventions import Conventions
 
 # For access to methods that calculate energy/spin
 from PVM.Analysis import Analysis
+
+class INIT_STRATEGY:
+    UNIFORM = 1
+    DOUBLE_CLUSTER = 2
+    OFFCENTER_2 = 3
+    OPPOSITE_2 = 4
+    SINGLE_CLUSTER = 6
+    
+    CIRCS_ALL_POSITIVE = 7
+    CIRCS_EVEN = 8
+
+#####################################
+#### Evolution Utility Functions ####
+#####################################
+
+def calc_dist_mesh(pos, domain_radius, n_vortices):
+    # unpack vectors of vortex positions
+    xvec = pos[:, 0]
+    yvec = pos[:, 1]
+    # generate mesh of vortex positions
+    xvec_mesh, yvec_mesh = np.meshgrid(xvec, yvec)
+
+    # generate mesh of image positions
+    xvec_im_mesh, yvec_im_mesh = np.meshgrid(domain_radius**2*xvec/(xvec**2 + yvec**2), domain_radius**2*yvec/(xvec**2 + yvec**2))
+
+    # temp variables for calcing distance between voritces and between voritces & images
+    yy_temp = yvec_mesh - yvec_mesh.T
+    xx_temp = xvec_mesh.T - xvec_mesh
+
+    yyp_temp = yvec_im_mesh - yvec_mesh.T
+    xxp_temp = xvec_im_mesh.T - xvec_mesh
+
+    # Switch to pdist maybe..
+    # calc Euclidian distance between vortices (avoiding sigularity)
+    rr1 = (xvec_mesh.T - xvec_mesh)**2 + (yvec_mesh.T - yvec_mesh)**2 + 1e-6*np.eye(n_vortices)
+
+    # calc Euclidian distance between vortices and images
+    rr2 = (xvec_mesh.T - xvec_im_mesh)**2 + (yvec_mesh - yvec_im_mesh.T)**2
+
+    return xx_temp, yy_temp, xxp_temp, yyp_temp, rr1, rr2
+
 
 class Evolver:
 
     def __init__(self,
                  n_vortices = 10,
                  coords = None,
-                 circ = None,
+                 circ = INIT_STRATEGY.CIRCS_EVEN,
                  T = 50,
                  dt = 0.01,
                  tol = 1e-8,
@@ -74,11 +115,11 @@ class Evolver:
                  stirrer_vel = .3,
                  annihilate_on_boundary = True,
                  warm_file = None,
-                 temperature = 0,
-                 mc_skip = -1,
-                 mc_burn = -1,
+                 temperature = .001,
+                 mc_skip = 1,
+                 mc_burn = 100,
                  mc_steps = 100,
-                 mc_enstrophy_tolerance = 1e-10,
+                 mc_vorticity_tolerance = 1e-3,
                  mc_bounding_move_ratio = 10,
                  ):
         if warm_file:
@@ -94,10 +135,10 @@ class Evolver:
 
         self.mc_settings = {
                 'temperature': temperature,
-                'skip': mc_skip,
-                'burn': mc_burn,
-                'steps': mc_steps,
-                'enstrophy_tol': mc_enstrophy_tolerance,
+                'skip': int(mc_skip),
+                'burn': int(mc_burn),
+                'steps': int(mc_steps),
+                'vorticity_tol': mc_vorticity_tolerance,
                 'bbox': domain_radius/mc_bounding_move_ratio
                 }
         
@@ -111,25 +152,18 @@ class Evolver:
         self.circulations = []
         
         self.vortices = []
-
-        if coords == None:
-            self.init_random_pos()
-        elif coords == "offcenter_2":
-            assert n_vortices == 2
-            self.initial_positions = np.array([[0.5*np.cos(np.pi/4), 0.5*np.cos(np.pi/4)],
-                                       [0.5*np.cos(np.pi), 0.5*np.sin(np.pi)]])
-            self.seed = -1
-        elif coords == 'opposite_2':
-            assert n_vortices == 2
-            self.initial_positions = np.array([[.5, 0], [-.5, 0]])
-            self.seed = -1
-        else:
-            self.initial_positions = coords
-        if circ == None:
-            self.init_circ()
-        else:
-            assert len(circ) == 1   # each frame has a corresp circulation array. Hence expect [ initial_circ ]
-            self.circulations = circ
+        
+        # We validate our generated configurations, e.g. ensuring no vortices outside bdry
+        # If initial conditions are poorly chosen, this may recursively trap us. Hence
+        # we add a counter and fail out if we exceed some fixed value
+        self.init_breaker = 0
+        self.init_max_attempts = 1e3
+        
+        # Initialize vortex positions
+        self.init_coords(coords)
+        
+        # Initialize vortex circulations
+        self.init_circ(circ)
 
         self.trajectories = [ self.initial_positions ]
         
@@ -143,6 +177,32 @@ class Evolver:
         self.stirrer_rad = stirrer_rad
         self.stirrer_vel = stirrer_vel
         
+    def init_coords(self, coords):
+        # 89029 buggy
+        seed = np.random.randint(10**5)
+        np.random.seed(seed)
+        self.seed = seed
+        print(f'seed: {seed}')
+        
+        if coords == None or coords == INIT_STRATEGY.UNIFORM:
+            self.init_random_pos()
+        elif coords == INIT_STRATEGY.OFFCENTER_2:
+            assert self.n_vortices == 2
+            self.initial_positions = np.array([[0.5*np.cos(np.pi/4), 0.5*np.cos(np.pi/4)],
+                                       [0.5*np.cos(np.pi), 0.5*np.sin(np.pi)]])
+            self.seed = -1
+        elif coords == INIT_STRATEGY.OPPOSITE_2:
+            assert self.n_vortices == 2
+            self.initial_positions = np.array([[.5, 0], [-.5, 0]])
+            self.seed = -1
+        elif coords == INIT_STRATEGY.DOUBLE_CLUSTER:
+            self.init_double_cluster()
+        elif coords == INIT_STRATEGY.SINGLE_CLUSTER:
+            self.init_single_cluster()
+        else:
+            self.initial_positions = coords
+
+    
     def warm_start(self, fname):
         fname = 'Datafiles/Evolution_' + fname
         with open(fname, "rb") as f:
@@ -152,29 +212,111 @@ class Evolver:
         
         # ... and then evolve another batch forward
 
+    
+    # TODO we need to pass some more parameters for the init strategy.. mu & sigma here
+    def init_single_cluster(self):
+        # Define a cluster center
+        mu = np.array([0, 0])
+        
+        # Take vortices normally distributed around center
+        sigma = 10
+        pos = sigma*np.random.randn(self.n_vortices, 2)
+        pos[:, 0] = pos[:, 0] + mu[0]
+        pos[:, 1] = pos[:, 1] + mu[1]
+        
+        self.initial_positions = pos
+        
+
+    """
+    Generates two "Onsager" vortices - may need some tuning to not just generate two clusters
+    that are in fact not in the negative temperature regime
+    """
+    def init_double_cluster(self, center_ratio = 0.7, sigma_ratio = 1e-1):        
+        # For simplicity just demand an even number of vortices
+        assert self.n_vortices % 2 == 0
+        
+        # Spontaneously break symmetry ;) by choosing antipodal centres
+        c1x = np.ones(self.n_vortices // 2)*self.domain_radius*center_ratio
+        c2x = -c1x
+        
+        # Join to add normal distributed radial displacements
+        c = np.hstack((c1x, c2x))[:, np.newaxis]
+        
+        # Std dev for radial displacements around centre. 
+        sigma = np.sqrt(sigma_ratio*self.domain_radius)
+        
+        # Generate vortex positions around each vortex. By construction the first half have positive circ
+        r = sigma*np.random.randn(self.n_vortices, 1)
+        theta = 2*np.pi*np.random.rand(self.n_vortices, 1)
+        
+        dx, dy = pol2cart(r, theta)
+        
+        pos = np.hstack((c+dx, dy))
+        
+        valid = self.validate_positions(pos)
+        
+        if not valid and self.init_breaker < self.init_max_attempts:
+            self.init_breaker = self.init_breaker + 1
+            self.init_double_cluster()
+        else:
+            self.initial_positions = pos
+
+    def validate_positions(self, pos):
+        # Grab polar coordinates fist
+        pos = np.array(cart2pol(pos))
+        r = pos[:, 0]
+        
+        # Is any position outside the boundary?
+        mask = np.sum(np.array([rad > self.domain_radius for rad in r]).astype(int))
+        
+        # If so, the sum of mask will be greater than zero, and we fail
+        if mask > 0:
+            return False
+        
+        # Todo: validate also how close they are since this can slow down simulations enormously
+        # Optional? We may want to annihilate at t = 0
+        
+        return True
+
     # Generates vortex positions uniformly over unit disk
-    def init_random_pos(self):
+    def init_random_pos(self, cartesian = False):
         # 5377
 #        seed = 32257 # single annihilation at thr = 1e-3
 #        seed = 44594 # double annihilation at thr = 1e-2
 #        seed = 96329
-        seed = np.random.randint(10**5)
-        np.random.seed(seed)
-        self.seed = seed
-        print('seed: %d' % seed)
-
-        r = np.sqrt(np.random.rand(self.n_vortices, 1))
+#        seed = np.random.randint(10**5)
+##        seed = 60059
+#        np.random.seed(seed)
+#        self.seed = seed
+#        print('seed: %d' % seed)
+        
+        if cartesian:
+            x = (np.random.rand(self.n_vortices, 1))*self.domain_radius
+            y = (np.random.rand(self.n_vortices, 1))*self.domain_radius
+            
+            self.initial_positions = np.hstack((x,y))
+            return
+        
+        r = np.sqrt(self.domain_radius**2*np.random.rand(self.n_vortices, 1))
         theta = 2*np.pi*np.random.rand(self.n_vortices, 1)
 
         # Second index is (x, y)
         self.initial_positions = np.hstack((pol2cart(r,theta)))
 
     # Generates the vorticity of each vortex
-    def init_circ(self):
+    def init_circ(self, strategy):
         c = np.zeros(self.n_vortices)
-        h = len(c) // 2
-        c[h:] = 1
-        c[:h] = -1
+        
+        if strategy == INIT_STRATEGY.CIRCS_ALL_POSITIVE:
+            c[:] = 1
+        elif strategy == INIT_STRATEGY.CIRCS_EVEN:
+            h = len(c) // 2
+            c[h:] = 1
+            c[:h] = -1
+        else:
+            if self.verbose:
+                print('Defaulting to uniformly distributed circulations')
+            c = int(np.random.uniform(self.n_vortices)*2-1)
 
         self.circulations = [np.flip(np.kron(np.ones((self.n_vortices, 1)), c))]
     
@@ -274,7 +416,7 @@ class Evolver:
         
     # Architecturally cleaner to annihilate before/after evolution, but does mean we compute the same thing twice.
     def annihilate(self, pos, t_frame):        
-        rr1 = self.calc_dist_mesh(pos)[4]
+        rr1 = calc_dist_mesh(pos, self.domain_radius, self.n_vortices)[4]
 
         # pick unique distances, e.g. set everything on and below diagonal to a lockout value(should exceed annihilation threshold)
         lockout = 1
@@ -357,34 +499,8 @@ class Evolver:
         
         return pos
 
-    def calc_dist_mesh(self, pos):
-        # unpack vectors of vortex positions
-        xvec = pos[:, 0]
-        yvec = pos[:, 1]
-        # generate mesh of vortex positions
-        xvec_mesh, yvec_mesh = np.meshgrid(xvec, yvec)
-
-        # generate mesh of image positions
-        xvec_im_mesh, yvec_im_mesh = np.meshgrid(self.domain_radius**2*xvec/(xvec**2 + yvec**2), self.domain_radius**2*yvec/(xvec**2 + yvec**2))
-
-        # temp variables for calcing distance between voritces and between voritces & images
-        yy_temp = yvec_mesh - yvec_mesh.T
-        xx_temp = xvec_mesh.T - xvec_mesh
-
-        yyp_temp = yvec_im_mesh - yvec_mesh.T
-        xxp_temp = xvec_im_mesh.T - xvec_mesh
-
-        # Switch to pdist maybe..
-        # calc Euclidian distance between vortices (avoiding sigularity)
-        rr1 = (xvec_mesh.T - xvec_mesh)**2 + (yvec_mesh.T - yvec_mesh)**2 + 1e-6*np.eye(self.n_vortices)
-
-        # calc Euclidian distance between vortices and images
-        rr2 = (xvec_mesh.T - xvec_im_mesh)**2 + (yvec_mesh - yvec_im_mesh.T)**2
-
-        return xx_temp, yy_temp, xxp_temp, yyp_temp, rr1, rr2
-
     def evolve(self, t, pos):
-        xx_temp, yy_temp, xxp_temp, yyp_temp, rr1, rr2 = self.calc_dist_mesh(pos)
+        xx_temp, yy_temp, xxp_temp, yyp_temp, rr1, rr2 = calc_dist_mesh(pos, self.domain_radius, self.n_vortices)
 
         # calc vortex velocities
         circ = self.circulations[-1]
@@ -491,13 +607,22 @@ class Evolver:
     ### MONTE-CARLO CODE ###
     ########################
     
-    def metropolis(self):
-#        self.mc_settings = {
-#        'temperature': temperature,
-#        'burn': mc_burn,
-#        'steps': mc_steps,
-#        'enstrophy_tol': mc_enstrophy_tolerance
-#        }
+    """
+    
+    Main function that performs relaxation+sweeping. Trajectories are recorded, so that statistics can be
+    taken later.
+    
+    TODO: We would like to optionally not record trajectories, as they may cause memory problems(
+    e.g. if we use 10^6 steps for relaxation it might get hairy)
+    
+    TODO2: We may also want a more efficient method for calculating the energy
+    
+    """
+    
+    def metropolis(self, trajectory = True):  
+        # Trick metadata a little bit
+        self.dt = 1
+        self.T = self.mc_settings['burn'] + self.mc_settings['steps']
         
         # Must be used with care, since there are no trajectories available etc.
         analysis = Analysis(None, self.get_trajectory_data())
@@ -506,17 +631,33 @@ class Evolver:
         h_stacked = analysis.get_energy(0, True)
         
         # Equilibrate the system
-        for i in np.arange(self.mc_settings['burn'] - 1) + 1:
-            self.sweep(i, h_stacked, analysis) # not as bad as it looks, since obj-ref pass by value
-            
-        # Begin sweeping for statistics
+        if self.verbose:
+            tqdm.write('Relaxing to equilibrium.')
+        
+        acc = 0
+        for i in tqdm(np.arange(self.mc_settings['burn'] - 1)):
+            acc = acc + self.sweep(i, h_stacked, analysis) # not as bad as it looks, since obj-ref pass by value
+        
+        if self.verbose:
+            tqdm.write(f'Relaxation complete. Successful moves per vortex: {acc/self.n_vortices}.')
+        
+        # Begin sweeping for statistics. Skip used for statistical independence/relaxation
         skip = self.mc_settings['skip']
         
-        for j in (i+1) + np.arange(skip*self.mc_settings['steps']):
+        if self.verbose:
+            tqdm.write('Sweeping for statistics')
+            
+        acc = 0
+        for j in tqdm(np.arange(skip*self.mc_settings['steps']) + (i+1)):
+            # Do a sweep
+            acc = acc + self.sweep(j, h_stacked, analysis)
+            
+            # Save state every skip'th frame for analysis. Seems a little pointless feature as of now;
+            # If trajectory lengths become too large to fit in memory then we need skip+inplace.
             if j % skip:
-                # Save state
                 pass
-    
+        if self.verbose:
+            tqdm.write(f'Sweeping complete. Successful moves per vortex: {acc/self.n_vortices}.')
     """
     
     Performs one full sweep of the metropolis algorithm, i.e. attempts to move each vortex once
@@ -525,18 +666,25 @@ class Evolver:
     If this still fails to contain the vortex(as it might if it is moving parallelly close to bdry)
     then we do not move it.
     
+    # Actually, we check for conservation of the second moment of vorticity. Not the enstrophy... hm.
     Secondly, the enstrophy Es is conserved. Thus we add an additional acceptance check |Es'-Es| < tol
     
     """
     def sweep(self, frame, h_stacked, analysis):
-        beta = 1 / temperature
-        es_tol = self.mc_settings['enstrophy_tol']
+        beta = 1 / self.mc_settings['temperature']
+        vort_tol = self.mc_settings['vorticity_tol']
         
         # Stepping in order has a tendency to yield bad statistics. Not sure why...?
         v_tar = list(range(len(self.vortices)))
         np.random.shuffle(v_tar)
         
-        # Do note that i and j are tuples
+        # Copy all positions to current frame. 
+        [v.set_pos(v.get_pos(frame)) for v in self.vortices]
+        
+        # Acceptance counter: how many of our attempted moves were accepted?
+        acc_ctr = 0
+        
+        # Attempt to move each vortex in-place at the current frame. 
         for i in v_tar:
             # Grab target vortex
             v = self.vortices[i]
@@ -544,27 +692,70 @@ class Evolver:
             # Energy of vortex prior to moving it
             energy_old = h_stacked[v.id]
             
-            # Move vortex
+            # Attempt to move vortex
             
             # Generate displacements from uniform distribution, center on zero and scale to boundingbox
             dr = self.mc_settings['bbox']*(np.random.rand(2) - 1/2)
             
             # Reflect if necessary
-            if np.linalg.norm(v.get_pos() + dr) > self.domain_radius:
-                new_pos = reflect(v.get_pos(), v.get_pos() + dr, self.domain_radius)
+            if np.linalg.norm(v.get_pos(frame) + dr) > self.domain_radius:
+                new_pos = reflect(v.get_pos(frame), v.get_pos(frame) + dr, self.domain_radius)
+            # Else just add displacement
+            else:
+                new_pos = v.get_pos(frame) + dr
             
-            # Energy of vortex after moving it 
+            # Check for move legality. In particular we do not accept if we are within another vortex core
+            legal = True
+            for v2 in self.vortices:
+                if v2.id == v.id:
+                    continue
+                
+                if np.linalg.norm(new_pos - v2.get_pos(frame)) < self.annihilation_threshold:
+                    legal = False
+            if not legal:
+                continue
+            
+            # Move good so far, attempt to go through with it
+            # We pop the old and reset to remain at the same frame as the other vortices
+            # (since set_pos() appends to the trajectory)
+            old_pos = v.pop_pos()
+            v.set_pos(new_pos)
+            
+            # Energy of vortex after moving it
             energy_new = analysis.get_energy(frame, False, v.id)
             
             # Energy change
             delta_E = energy_new - energy_old
             
-            # Rejection sampling. Note that if delta_E <= 0, exp >= 1 and we always accept
-            if np.random.uniform(0.0, 1.0) < np.exp(-beta * delta_E):
-                self.spin_config[i] = (self.spin_config[i] + dtheta) % 2*np.pi
-                self.energy = self.get_energy()
+            # Rejection sampling. 
+            accept = True
+            
+            # First check the energy change. Note that if delta_E <= 0, exp >= 1 and we always accept
+            if np.random.uniform(0, 1) > np.exp(-beta * delta_E):
+                accept = False
+            
+            # Then check the second moment of vorticity(ie. angular momentum). Should be conserved!
+            if np.abs(np.dot(v.get_pos(0), v.get_pos(0)) - np.dot(new_pos, new_pos)) > vort_tol:
+                accept = False
+            
+            # Update energy if all good. Otherwise restore old state
+            if accept:
+                h_stacked[v.id] = energy_new
+                acc_ctr = acc_ctr + 1
+            # Reject. Restore old position
+            else:
+                v.pop_pos()
+                v.set_pos(old_pos)
+                
+        return acc_ctr/len(self.vortices)
         
-        
+    """
+    Shortcut function for live logging. Could extend w/ write to file & other options for verbose
+    """
+    def talk(self, text):
+        if not self.verbose:
+            return
+        tqdm.write(text)
     
     def set_trajectory_data(self, data):
         settings = data['settings']
@@ -621,9 +812,227 @@ class Evolver:
         data = self.get_trajectory_data()
         with open(fname, "wb") as f:
             pickle.dump(data, f)
+            
+"""
+
+Separate class for evolving a fixed number of vortices using (modified) rejection sampling
+
+n_vortices:             [Integer] number of vortices
+temperature:            [Float] temperature of bath
+bbox_ratio:             [Float] vortices are allowed to move up to domain_radius/bbox_ratio in one step
+vorticity_tol:          [Float] angular momentum is conserved. tolerance for checking that it is satisfied
+annihilation_threshold  [Float] essentially twice the core radius. vortices cannot collide/annihilate
+domain_radius:          [Float] size of domain
+total_steps:            [Integer] total number of sweeps 
+burn:                   [Integer] no hooks will be called until burn steps have been completed
+hooks:                  [list] must contain functions that accept a tuple of type
+                               (vortex positions, image positions, circulations)
+                               used to create histories over statistical quantities
 
 
-if __name__ == '__main__':
-    pvm = Evolver()
-    pvm.rk4()
-    pvm.save()
+Note that there is no point in providing hooks for energy/angular momentum, as these are automatically
+recorded from t = 0. This is done as mcmc evolution requires their calculation anyway. Energy should also
+approximately converge at equilibrium.
+
+"""
+class Evolver_MCMC:
+    
+    def __init__(self,
+                 n_vortices = 10,
+                 circ_init_strat = INIT_STRATEGY.CIRCS_EVEN,
+                 temperature = 1e-5,
+                 bbox_ratio = 50,
+                 vorticity_tol = 1e-3,
+                 annihilation_threshold = 1e-2,
+                 domain_radius = 1,
+                 skip = 1,
+                 burn = 0,
+                 total_steps = 2*1e5,
+                 hooks = []):
+        
+        self.temperature = temperature
+        self.vorticity_tol = vorticity_tol
+        self.annihilation_threshold = annihilation_threshold
+        self.bbox = domain_radius / bbox_ratio
+        self.skip = skip
+        self.total_steps = total_steps
+        self.n_vortices = n_vortices
+        self.domain_radius = domain_radius
+        self.hooks = hooks
+        
+        # Set up initial vortex positions and vortex image positions
+        self.init_random_pos()
+        self.init_circ()
+        
+        # Get initial energies
+        self.energy = [self.get_energy(i) for i in np.arange(n_vortices)]
+        
+        # Get initial angular momenta
+        self.angular = [self.get_angular(i) for i in np.arange(n_vortices)]
+        
+        # Maybe don't need this crap. Just update single-energies, sum H at end of sweep
+        # In that case move it back into Evolver class
+        
+#        self.mesh = calc_dist_mesh(self.pos0, self.domain_radius, self.n_vortices)
+#        self.rr1, self.rr2 = self.mesh[4], self.mesh[5]
+    
+    def evolve(self):
+        # Record accepted moves
+        acc = 0
+        
+        # Record energy history
+        
+        H = []
+        H.append(np.sum(self.energy))
+        
+        for i in tqdm(np.arange(self.total_steps)):
+            acc = acc + self.sweep()
+            
+            H.append(np.sum(self.energy))
+            
+        self.energy_history = H
+    
+    # Generates vortex positions uniformly over unit disk
+    def init_random_pos(self):
+        seed = np.random.randint(10**5)
+        np.random.seed(seed)
+        self.seed = seed
+        print('seed: %d' % seed)
+        
+        # Uniform polar coords
+        r = np.sqrt(np.random.rand(self.n_vortices, 1))
+        theta = 2*np.pi*np.random.rand(self.n_vortices, 1)
+
+        # Set initial positions in cartesian coordinates
+        self.pos0 = np.hstack((pol2cart(r, theta)))
+        
+        # Set the positions that we update during sweeps
+        self.pos = self.pos0
+        
+        # And create image positions
+        self.impos = [image_pos(p, self.domain_radius) for p in self.pos]
+
+    # Generates the vorticity of each vortex
+    def init_circ(self, strategy):
+        c = np.zeros(self.n_vortices)
+        
+        if strategy == INIT_STRATEGY.CIRCS_ALL_POSITIVE:
+            c[:] = 1
+        elif strategy == INIT_STRATEGY.CIRCS_EVEN:
+            h = len(c) // 2
+            c[h:] = 1
+            c[:h] = -1
+
+        self.circulations = [np.flip(np.kron(np.ones((self.n_vortices, 1)), c))]
+    
+    def get_angular(self, i):
+        return np.dot(self.pos[i], self.pos[i])*self.circs[i]
+    
+    def get_energy(self, vortex_id):
+        # Target circulation
+        g0 = self.circs[vortex_id]
+        
+        # Distance to all other vortices(self included)
+        rr1 = np.linalg.norm(self.pos - self.pos[vortex_id], axis = 1)
+        
+        # Set self-energy to zero(we don't want to count it)
+        rr1[vortex_id] = 1
+        
+        # Distance to all images
+        rr2 = np.linalg.norm(self.impos - self.pos[vortex_id], axis = 1)
+        
+        # Add in circulations
+        Hi = -g0*np.sum(np.log(rr1)*self.circs)/np.pi + g0*np.sum(np.log(rr2)*self.circs)/np.pi
+        
+        return Hi
+    
+    
+    """
+    
+    Performs one full sweep of the metropolis algorithm, i.e. attempts to move each vortex once
+    
+    We use two modifications: if vortex hits bdry, then we move it using specular reflection
+    If this still fails to contain the vortex(as it might if it is moving parallelly close to bdry)
+    then we do not move it.
+    
+    # Actually, we check for conservation of the second moment of vorticity. Not the enstrophy... hm.
+    Secondly, the enstrophy Es is conserved. Thus we add an additional acceptance check |Es'-Es| < tol
+    
+    """
+    def sweep(self):
+        beta = 1 / self.temperature
+        vort_tol = self.vorticity_tol
+        
+        # Stepping in order has a tendency to yield bad statistics. Not sure why...?
+        v_tar = list(range(len(self.pos)))
+        np.random.shuffle(v_tar)
+        
+        # Acceptance counter: how many of our attempted moves were accepted?
+        acc_ctr = 0
+        
+        # Attempt to move each vortex in-place at the current frame. 
+        for i in v_tar:            
+            # Energy of vortex prior to moving it
+            energy_old = self.energy[i]
+            angular_old = self.angular[i]
+            
+            # Attempt to move vortex
+            
+            # Generate displacements from uniform distribution, center on zero and scale to boundingbox
+            dr = self.bbox*(np.random.rand(2) - 1/2)
+            
+            # Reflect if necessary
+            if np.linalg.norm(self.pos[i] + dr) > self.domain_radius:
+                new_pos = reflect(self.pos[i], self.pos[i] + dr, self.domain_radius)
+            # Else just add displacement
+            else:
+                new_pos = self.pos[i] + dr
+            
+            # Check for move legality. In particular we do not accept if we are within another vortex core
+            legal = True
+            for j in v_tar:
+                if j == i:
+                    continue
+                
+                if np.linalg.norm(new_pos - self.pos[j]) < self.annihilation_threshold:
+                    legal = False
+            if not legal:
+                continue
+            
+            # Move good so far, attempt to go through with it
+            # Store old in case of rejection
+            old_pos = self.pos[i]
+            self.pos[i] = new_pos
+            
+            # Energy and angular momentum of vortex after moving it
+            energy_new = self.get_energy(i)
+            angular_new = self.get_angular(i)
+            
+            # Energy change
+            delta_E = energy_new - energy_old
+            
+            # Angular momentum change
+            delta_A = np.abs(angular_old - angular_new)
+            
+            # Rejection sampling. 
+            accept = True
+            
+            # First check the energy change. Note that if delta_E <= 0, exp >= 1 and we always accept
+            if np.random.uniform(0, 1) > np.exp(-beta * delta_E):
+                accept = False
+            
+            # Then check the second moment of vorticity(ie. angular momentum). Should be conserved.
+            if delta_A > vort_tol:
+                accept = False
+            
+            # Update energy if all good. Otherwise restore old state
+            if accept:
+                self.energy[i] = energy_new
+                self.angular[i] = angular_new
+                acc_ctr = acc_ctr + 1
+            # Reject. Restore old position
+            else:
+                self.pos[i] = old_pos
+                
+        return acc_ctr/self.n_vortices
+
