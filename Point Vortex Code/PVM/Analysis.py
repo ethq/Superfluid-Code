@@ -78,11 +78,13 @@ class Analysis:
         self.dipoles = []
         self.clusters = []
         self.energies = []
+        self.energies2 = []
         self.dipole_moments = []
         self.pair_corr_w = []
         self.pair_corr = []
         self.rmsCluster = []
         self.rmsFirstVortex = []
+        self.smallestDistance = []
         
         self.n_total = []
         self.n_dipole = []
@@ -109,6 +111,9 @@ class Analysis:
             self.n_dipole.append( len(self.dipoles[-1]) ) 
             self.n_cluster.append( len(np.unique(self.clusters[-1])) )
             
+            # Compute smallest distance(does this cause problems with image energies..???)
+            self.smallestDistance.append( self.get_smallest_distance(i) )
+            
             # Compute RMS distance
             self.rmsCluster.append( self.get_rms_dist(i, which = RMS_CHOICE.CLUSTER) )
             
@@ -117,6 +122,9 @@ class Analysis:
             
             # Compute energy
             self.energies.append( self.get_energy(i) )
+            
+            # For debug purposes, compute energy from images and real vortices separately
+            self.energies2.append( self.get_energy(i, debug = True))
             
             # Compute dipole moment
             self.dipole_moments.append( self.get_dipole_moment(i) )
@@ -137,6 +145,7 @@ class Analysis:
         
         return self.get_data()
     
+    
     # Returns the data of a full analysis.
     # TOOD: add flags that restrict analysis to certain properties to speed things up
     def get_data(self):
@@ -147,12 +156,35 @@ class Analysis:
             'n_dipole': np.array(self.n_dipole),
             'n_cluster': np.array(self.n_cluster),
             'energies': self.energies,
+            'energies2': self.energies2,
             'dipoleMoment': self.dipole_moments,
             'rmsCluster': self.rmsCluster,
             'rmsFirstVortex': self.rmsFirstVortex,
             'pair_corr': self.pair_corr,
-            'pair_corr_w': self.pair_corr_w
+            'pair_corr_w': self.pair_corr_w,
+            'smallestDistance': self.smallestDistance
                 }
+        
+    def get_smallest_distance(self, i):
+        mindist = np.Inf
+        for v1 in self.vortices:
+            if not v1.is_alive(i):
+                continue
+            
+            for v2 in self.vortices:
+                if not v2.is_alive(i):
+                    continue
+                
+                if v1.id == v2.id:
+                    continue
+                
+                newdist = eucl_dist(v1.get_pos(i), v2.get_pos(i))
+                
+                if newdist < mindist:
+                    mindist = newdist
+                    
+        return mindist
+            
         
     def get_dipole_moment(self, i):
         D = 0
@@ -591,7 +623,7 @@ class Analysis:
                          
     vortex_id: [Integer] if specified, returns _only_ the energy for the given vortex
     """
-    def get_energy(self, frame, stacked = False, vortex_id = -1):
+    def get_energy(self, frame, stacked = False, vortex_id = -1, debug = False):
         
         # Hamiltonian
         H = 0
@@ -615,6 +647,10 @@ class Analysis:
                 print(f'No vortex with id = {vortex_id}')
                 return 0
         
+        # Differential for real energy increments
+        dhr = 0
+        # Differential for images
+        dhi = 0
         
         # Loop over target vortex energies/energy
         for v1 in vortex_targets:
@@ -635,8 +671,9 @@ class Analysis:
                 # Exclude self-interaction
                 # Note: np.log will give a runtimewarning if r2 == 0, but will correctly spit out -infty
                 if v1.id != v2.id:
-                    dH1 = - v1.circ*v2.circ/(np.pi)*np.log(r2)
+                    dH1 = - v1.circ*v2.circ/np.pi*np.log(r2)
                     H = H + dH1
+                    dhr = dhr + dH1
                 
                 # Contribution from vortex-image interactions
                 # We take the interaction to be between vortex v1 and the image of v2, keeping "singular" term
@@ -645,8 +682,10 @@ class Analysis:
                 
                 ri2 = eucl_dist(v1p, v2ip)
                 
+                # Note the plus compared to minus for real vortices. This compensates for the fact that images have opposite sign.
                 dH2 = v1.circ*v2.circ/np.pi*np.log(ri2)
                 H = H + dH2
+                dhi = dhi + dH2
                 
                 if stacked:
                     H2[v1.id] = H2[v1.id] + dH2
@@ -654,6 +693,10 @@ class Analysis:
                         H2[v1.id] = H2[v1.id] + dH1
             if stacked:
                 return H2
+            
+        if debug:
+            return [dhr, dhi]
+        
         return H
     
     """

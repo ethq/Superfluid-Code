@@ -92,7 +92,7 @@ class Evolver:
                  cfg,
                  T = 50,
                  dt = 0.01,
-                 tol = 1e-8,
+                 tol = 1e-12,
                  max_iter = 15,
                  annihilation_threshold = 1e-2,
                  verbose = True,
@@ -111,6 +111,7 @@ class Evolver:
                  mc_steps = 100,
                  mc_vorticity_tolerance = 1e-3,
                  mc_bounding_move_ratio = 10,
+                 rk_degree = 4
                  ):
         if warm_file:
             self.warm_start(warm_file)
@@ -168,8 +169,36 @@ class Evolver:
         self.stirrer_rad = stirrer_rad
         self.stirrer_vel = stirrer_vel
         
-
-
+        # Set up RK5 coefficients (https://www.sciencedirect.com/science/article/pii/0771050X80900133)
+        
+        # a,b are the "true" rk5 coefs
+        a = np.array([0, 0.2, 0.3, 0.6, 1.0, 0.875])
+        b = np.array([[        0.0,        0.0,         0.0,            0.0,        0.0],
+                    [      1/5.,        0.0,         0.0,            0.0,        0.0],
+                    [      3/40,    9/40,         0.0,            0.0,        0.0],
+                    [      3/10,   -9/10,       6./5,            0.0,        0.0],
+                    [    -11/54,     5/2,    -70/27,        35/27,        0.0],
+                    [1631/55296, 175/512, 575/13824, 44275/110592, 253/4096]])
+        
+        # coefs for combining the rk5 steps
+        c = np.array([37/378, 0, 250/621, 125/594, 0, 512/1771])
+        
+        # unused for now
+        d = np.array([2825/27648, 0, 18575/48384, 13525/55296, 277/14336, 1/4])
+        
+        self.rk5_coef = {
+                'a': a,
+                'b': b,
+                'c': c,
+                'd': d
+                }
+        
+        if rk_degree == 4:
+            self.rk_step = self.rk4_step
+        elif rk_degree == 5:
+            self.rk_step = self.rk5_step
+        else:
+            raise NotImplementedError('this degree of runge-kutta has not been implemented')
     
     def warm_start(self, fname):
         fname = 'Datafiles/Evolution_' + fname
@@ -379,6 +408,28 @@ class Evolver:
 
         return 1/(2*np.pi)*np.hstack((dx[:, np.newaxis], dy[:, np.newaxis]))
 
+    def rk5_step(self, pos, t, h): 
+        A = self.rk5_coef['a']
+        B = self.rk5_coef['b']
+        C = self.rk5_coef['c']
+        #D = self.rk5_coef['d']
+        
+        K = np.zeros((6,) + pos.shape)
+        
+        K[0] = h * self.evolve(t, pos)
+        K[1] = h * self.evolve(t + A[1]*h, pos + B[1][0]*K[0])
+        K[2] = h * self.evolve(t + A[2]*h, pos + B[2][0]*K[0] + B[2][1]*K[1])
+        K[3] = h * self.evolve(t + A[3]*h, pos + B[3][0]*K[0] + B[3][1]*K[1] + B[3][2]*K[2])
+        K[4] = h * self.evolve(t + A[4]*h, pos + B[4][0]*K[0] + B[4][1]*K[1] + B[4][2]*K[2] + B[4][3]*K[3])
+        K[5] = h * self.evolve(t + A[5]*h, pos + B[5][0]*K[0] + B[5][1]*K[1] + B[5][2]*K[2] + B[5][3]*K[3] + B[5][4]*K[4])
+ 
+        # increment
+        dpos = np.zeros_like(pos)
+        for i in range(6):
+            dpos = dpos + C[i]*K[i]
+ 
+        return pos + dpos
+
     def rk4_step(self, pos, t, h):
         hh = 0.5*h
         h6 = h/6;
@@ -387,10 +438,13 @@ class Evolver:
         k2 = self.evolve(t+hh, pos + hh*k1)
         k3 = self.evolve(t+hh, pos + hh*k2)
         k4 = self.evolve(t+h, pos + h*k3)
+        
+        # increment
+        dpos = h6*(k1 + 2*k2 + 2*k3 + k4)
 
-        return pos + h6*(k1 + 2*k2 + 2*k3 + k4)
+        return pos + dpos
 
-    def rk4_multi_step(self, pos, t_curr, j):
+    def rk_multi_step(self, pos, t_curr, j):
         nsteps = 2**j
         h = self.dt/nsteps
 
@@ -399,20 +453,20 @@ class Evolver:
         t_start = t_curr
 
         for steps in np.arange(nsteps):
-            cpos = self.rk4_step(cpos, c_time, h)
+            cpos = self.rk_step(cpos, c_time, h)
             c_time = t_start + steps*h
         return cpos
 
-    def rk4_error_tol(self, pos, t_curr):
+    def rk_error_tol(self, pos, t_curr):
         # step at single splitting
-        cpos = self.rk4_multi_step(pos, t_curr, 1)
+        cpos = self.rk_multi_step(pos, t_curr, 1)
         j = 2
         i = 0
         errorval = 1
 
         # step at increasing splits until convergence
         while errorval > self.tol and i < self.max_iter:
-            npos = self.rk4_multi_step(pos, t_curr, j)
+            npos = self.rk_multi_step(pos, t_curr, j)
             errorval = np.sum(np.abs(cpos-npos))
 
             cpos = npos
@@ -430,7 +484,7 @@ class Evolver:
     """
     Integrates the full evolution of the system
     """
-    def rk4(self, t_start = 0):
+    def rk(self, t_start = 0):
         ts = time.time()
         T = self.T
         dt = self.dt
@@ -448,7 +502,7 @@ class Evolver:
             c_pos = self.spawn(c_pos, i)
 
             # Adaptively evolve one timestep forward
-            c_pos = self.rk4_error_tol(c_pos, i)
+            c_pos = self.rk_error_tol(c_pos, i)
             self.update_vortex_positions(c_pos, i)
 
             # Add the corresp trajectory

@@ -10,10 +10,12 @@ import ctypes
 
 # Assumes the seeds have been evolved and analyzed
 
-fnames = ['N20_T20_S30819'
+fnames = ['N20_T50_S768390681'
           ]
 
 for fname in fnames:
     animator = pvm.Animator(fname)
-    animator.save_animation(pvm.PlotChoice.vortices_energy)
+    animator.save_animation([pvm.PlotChoice.vortices, pvm.PlotChoice.energy])
     
+    
+ctypes.windll.user32.FlashWindow(ctypes.windll.kernel32.GetConsoleWindow(), True)

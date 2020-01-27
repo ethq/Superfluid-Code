@@ -31,6 +31,9 @@ class PlotChoice:
     rmsCluster = 'rmsCluster'
     rmsFirstVortex = 'rmsFirstVortex'
     
+    energyImageReal = 'energyImageReal'
+    smallestDistance = 'smallestDistance'
+    
     def show_vortex(choice):
         if type(choice) == str:
             choice = [choice]
@@ -69,5 +72,7 @@ class PlotChoice:
             PlotChoice.numberOfVortices,
             PlotChoice.energyPerVortex,
             PlotChoice.rmsCluster,
-            PlotChoice.rmsFirstVortex
+            PlotChoice.rmsFirstVortex,
+            PlotChoice.energyImageReal,
+            PlotChoice.smallestDistance
             ]

@@ -7,9 +7,18 @@ Created on Thu Jan 23 10:42:32 2019
 
 import PVM as pvm
 
-fname = 'N20_T10_S18817436'
+# seed: 851125867 has an energy gain of ~10 using rk4. Energy gain is the same with rk5. circulations all positive
+# seed: 919776311 is balanced.
+# seed: 179172593 is balanced, and image/real energy differentials are mirrored 
+# seed: 768390681 is pure positive, deviation ~ 68    shows extremely odd behaviour of image energies
+# seed: 128234509 is pure positive, deviation ~ 1.7
+
+# Whats the difference between these two seeds? 
+
+
+fname = 'N20_T50_S768390681'
 plotter = pvm.HarryPlotter(fname)
 
-pc = [pvm.PlotChoice.rmsFirstVortex, pvm.PlotChoice.numberOfVortices]
+pc = [pvm.PlotChoice.smallestDistance, pvm.PlotChoice.energyImageReal]
 
 plotter.plot(pc)

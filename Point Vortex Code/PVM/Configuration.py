@@ -33,6 +33,7 @@ class Configuration:
     max_attempts: [Integer] will try to generate a configuration this many times. default failure condition:
                             vortex outside domain.
     params:     [Dictionary] extra parameters if needed for a certain strategy
+    validation_options:  [Dictionary] 
     """
     def __init__(self,
                  n,
@@ -41,7 +42,8 @@ class Configuration:
                  circ_strategy,
                  seed = None,
                  params = {},
-                 max_attempts = 100):
+                 validation_options = {},
+                 max_attempts = 1000):
         
         self.n_vortices = n
         self.domain_radius = r
@@ -50,6 +52,7 @@ class Configuration:
         
         # Set up coordinates first. These can fail, as opposed to circulations
         ctr = 0
+        is_valid = False
         while ctr < max_attempts:
             if not seed:
                 seed_ = np.random.randint(10**9)
@@ -59,11 +62,13 @@ class Configuration:
                       
             
             getattr(self, coord_strategy)(params)            
-            is_valid = self.validate()
+            is_valid = self.validate(validation_options)
             
             if is_valid:
                 break
             
+            ctr = ctr + 1
+        
         if not is_valid:
             raise ValueError("Unable to generate requested configuration")
         
@@ -198,9 +203,13 @@ class Configuration:
     
     
     """
-    Validates the generated positions. Currently just restricts to circular domain.
+    Validates the generated positions. Options may be supplied to validate on additional conditions.
+    
+    Supported options:
+        minimum_separation:     [Float] Vortices cannot be generated closer than the given value.
+        
     """
-    def validate(self):
+    def validate(self, options = {}):        
         # Grab polar coordinates fist
         pos = np.array(cart2pol(self.pos))
         r = pos[:, 0]
@@ -212,11 +221,30 @@ class Configuration:
         if mask > 0:
             return False
         
-        # Todo: validate also how close they are since this can slow down simulations enormously
-        # Optional? We may want to annihilate at t = 0
+        # If no options are supplied we are done (this is here to prevent key errors)
+        if not options:
+            return True
         
+        # Validate on minimum separation
+        if options['minimum_separation']:
+            minsep = options['minimum_separation']
+            
+            # Grab vortex cartesian coordinates
+            pos = self.pos
+            
+            # Loop over every vortex and check its distance to neighbours. Could be optimized by deleting a vortex after checking.
+            for i, p in enumerate(pos):
+                d = np.linalg.norm(pos - p, axis = 1)
+                
+                # No self-contribution
+                d = np.delete(d, i)
+                
+                # Any vortex closer than minsep? If so, fail immediately
+                if (d < minsep).any():
+                    return False
+        
+        # We got this far - must be all good!
         return True
-
 
     """
     Since we have vectorized evolution, we'll need to put the circulations into a matrix

@@ -62,12 +62,13 @@ class HarryPlotter:
         self.circulations = evolution_data['circulations']
         self.dipoles = analysis_data['dipoles']
         self.clusters = analysis_data['clusters']
+        self.energies = analysis_data['energies']
+        self.energies2 = np.array(analysis_data['energies2'])
         
         # Remembering to close the files
         if fname:
             ef.close()
             af.close()
-            
             
         self.n_steps = self.settings['n_steps']
         
@@ -93,6 +94,15 @@ class HarryPlotter:
                         'labels': ['Energy deviation'],
                         'lines': 1,
                         'data': [analysis_data['energies']]
+                    },
+                PlotChoice.energyImageReal:
+                    {
+                        'title': 'Energy differentials (centered)',
+                        'xlabel': 'Frame',
+                        'ylabel': 'Differential',
+                        'labels': ['Images', 'Real'],
+                        'lines': 2,
+                        'data': [self.energies2[:, 1]/np.mean(self.energies2[0, 1]), self.energies2[:, 0]/np.mean(self.energies2[0, 0])]   # (1580, 480)
                     },
                 PlotChoice.dipoleMoment:
                     {
@@ -137,6 +147,15 @@ class HarryPlotter:
                           'ylabel': 'Energy',
                           'labels': ['Energy per vortex'],
                           'lines': 1
+                    },
+                PlotChoice.smallestDistance:
+                    {
+                        'title': 'Smallest distance',
+                        'xlabel': 'Frame',
+                        'ylabel': 'Distance',
+                        'labels': ['<Empty>'],
+                        'lines': 1,
+                        'data': [analysis_data['smallestDistance']]
                     }
                 }
         
@@ -163,7 +182,7 @@ class HarryPlotter:
                 data = prop['data'][j]
                 axes[i].plot(data, label = label)
             
-            if j > 1:
+            if j >= 1:
                 axes[i].legend()
         plt.show()
     
@@ -192,5 +211,5 @@ class HarryPlotter:
         
         
     def save(self):
-        pass
+        raise NotImplementedError('HarryPlotter.save()')
     
