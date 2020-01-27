@@ -8,12 +8,31 @@ Created on Mon Nov 18 13:14:27 2019
 import ctypes
 import PVM as pvm
 
+# First set up initial conditions
+n_vortices = 6
+domain_radius = 50
+
+params = {
+        'center': [1e-4, 1e-4],
+        'sigma': 5
+        }
+
+cfg = pvm.Configuration(
+        n_vortices,
+        domain_radius,
+        pvm.CONFIG_STRAT.SINGLE_CLUSTER,
+        pvm.CONFIG_STRAT.CIRCS_ALL_POSITIVE,
+        None,
+        params
+        )
+
 ev_config = {
-    'n_vortices': 20,
-    'gamma': 0.00,
-    'T': 80,
+    'n_vortices': n_vortices,
+    'domain_radius': domain_radius,
+    'gamma': 0,
+    'T': 100,
     'spawn_rate': 0,
-    'coords': pvm.INIT_STRATEGY.DOUBLE_CLUSTER
+    'cfg': cfg
     }
 
 evolver = pvm.Evolver(**ev_config)
@@ -26,7 +45,8 @@ analysis = pvm.Analysis(None, traj_data)
 analysis_data = analysis.full_analysis()
 analysis.save()
 
+pc = [pvm.PlotChoice.vortices, pvm.PlotChoice.energy]
 animator = pvm.Animator(None, traj_data, analysis_data)
-animator.save_animation(pvm.PlotChoice.vortices_energy)
+animator.save_animation(pc)
 
 ctypes.windll.user32.FlashWindow(ctypes.windll.kernel32.GetConsoleWindow(), True)

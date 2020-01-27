@@ -9,6 +9,7 @@ import PVM as pvm
 
 # Assumes the seed has been evolved
 
-fname = 'N30_T100_S95642'
+fname = 'N20_T10_S18817436'
 analysis = pvm.Analysis(fname)
+analysis.full_analysis()
 analysis.save()
