@@ -7,7 +7,7 @@ Created on Sat Nov 16 14:51:44 2019
 
 import numpy as np
 import matplotlib.pyplot as plt
-import time as time
+import time
 
 class Timer:
     def __init__(self, text = ''):
@@ -24,6 +24,7 @@ class Timer:
         secs = self.duration - hrs*60*60 - mins*60
         
         return f'{self.text} took: {hrs} hrs, {mins} mins and {secs} seconds.'
+
     
 """
 Converts cartesian to polar coordinates. Returns [r, theta].
@@ -162,27 +163,6 @@ def get_active_vortex_cfg(vortices, tid):
             'circulations': circ,
             'ids': ids
             }
-
-"""
-
-Plots a vortex configuration, expected in the format spat out by get_active_vortex_cfg():
-    A dictionary with keys 'positions', 'circulations' and 'ids'. 'ids' are not used and may be left empty.
-
-"""
-def plot_cfg(cfg):
-    plt.figure()
-    
-    pos = cfg['positions']
-    c = np.array(cfg['circulations']).astype(int)
-    c = (c+1) // 2
-
-    mark = ['o', 'o']
-    colors = ['#88d19b', '#853128']
-    
-    for i, p in enumerate(pos):
-        plt.plot(p[0], p[1], mark[c[i]], color = colors[c[i]])
-        
-    plt.show()
 
 # Returns active vortices at time tid. By default finds all vortices that are currently active
 def get_active_vortices(vortices, tid = -np.Infinity):

@@ -45,7 +45,7 @@ from itertools import chain, compress
 from tqdm import tqdm
 import collections
 import pickle
-from PVM.Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices, reflect, Timer
+from PVM.Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices, reflect
 
 from PVM.Vortex import Vortex, image_pos
 from PVM.Conventions import Conventions
@@ -53,16 +53,7 @@ from PVM.Conventions import Conventions
 # For access to methods that calculate energy/spin
 from PVM.Analysis import Analysis
 
-class INIT_STRATEGY:
-    UNIFORM = 1
-    DOUBLE_CLUSTER = 2
-    OFFCENTER_2 = 3
-    OPPOSITE_2 = 4
-    SINGLE_CLUSTER = 6
-    
-    CIRCS_ALL_POSITIVE = 7
-    CIRCS_EVEN = 8
-
+# TODO put this back in
 #####################################
 #### Evolution Utility Functions ####
 #####################################
@@ -97,9 +88,8 @@ def calc_dist_mesh(pos, domain_radius, n_vortices):
 class Evolver:
 
     def __init__(self,
-                 n_vortices = 10,
-                 coords = None,
-                 circ = INIT_STRATEGY.CIRCS_EVEN,
+                 n_vortices,
+                 cfg,
                  T = 50,
                  dt = 0.01,
                  tol = 1e-8,
@@ -149,7 +139,6 @@ class Evolver:
         self.gamma = gamma
 
         self.annihilation_threshold = annihilation_threshold
-        self.circulations = []
         
         self.vortices = []
         
@@ -160,10 +149,12 @@ class Evolver:
         self.init_max_attempts = 1e3
         
         # Initialize vortex positions
-        self.init_coords(coords)
+        self.initial_positions = cfg.pos
         
         # Initialize vortex circulations
-        self.init_circ(circ)
+        self.circulations = cfg.circulations
+        
+        self.seed = cfg.seed
 
         self.trajectories = [ self.initial_positions ]
         
@@ -177,30 +168,7 @@ class Evolver:
         self.stirrer_rad = stirrer_rad
         self.stirrer_vel = stirrer_vel
         
-    def init_coords(self, coords):
-        # 89029 buggy
-        seed = np.random.randint(10**5)
-        np.random.seed(seed)
-        self.seed = seed
-        print(f'seed: {seed}')
-        
-        if coords == None or coords == INIT_STRATEGY.UNIFORM:
-            self.init_random_pos()
-        elif coords == INIT_STRATEGY.OFFCENTER_2:
-            assert self.n_vortices == 2
-            self.initial_positions = np.array([[0.5*np.cos(np.pi/4), 0.5*np.cos(np.pi/4)],
-                                       [0.5*np.cos(np.pi), 0.5*np.sin(np.pi)]])
-            self.seed = -1
-        elif coords == INIT_STRATEGY.OPPOSITE_2:
-            assert self.n_vortices == 2
-            self.initial_positions = np.array([[.5, 0], [-.5, 0]])
-            self.seed = -1
-        elif coords == INIT_STRATEGY.DOUBLE_CLUSTER:
-            self.init_double_cluster()
-        elif coords == INIT_STRATEGY.SINGLE_CLUSTER:
-            self.init_single_cluster()
-        else:
-            self.initial_positions = coords
+
 
     
     def warm_start(self, fname):
@@ -211,114 +179,6 @@ class Evolver:
         self.set_trajectory_data(data)
         
         # ... and then evolve another batch forward
-
-    
-    # TODO we need to pass some more parameters for the init strategy.. mu & sigma here
-    def init_single_cluster(self):
-        # Define a cluster center
-        mu = np.array([0, 0])
-        
-        # Take vortices normally distributed around center
-        sigma = 10
-        pos = sigma*np.random.randn(self.n_vortices, 2)
-        pos[:, 0] = pos[:, 0] + mu[0]
-        pos[:, 1] = pos[:, 1] + mu[1]
-        
-        self.initial_positions = pos
-        
-
-    """
-    Generates two "Onsager" vortices - may need some tuning to not just generate two clusters
-    that are in fact not in the negative temperature regime
-    """
-    def init_double_cluster(self, center_ratio = 0.7, sigma_ratio = 1e-1):        
-        # For simplicity just demand an even number of vortices
-        assert self.n_vortices % 2 == 0
-        
-        # Spontaneously break symmetry ;) by choosing antipodal centres
-        c1x = np.ones(self.n_vortices // 2)*self.domain_radius*center_ratio
-        c2x = -c1x
-        
-        # Join to add normal distributed radial displacements
-        c = np.hstack((c1x, c2x))[:, np.newaxis]
-        
-        # Std dev for radial displacements around centre. 
-        sigma = np.sqrt(sigma_ratio*self.domain_radius)
-        
-        # Generate vortex positions around each vortex. By construction the first half have positive circ
-        r = sigma*np.random.randn(self.n_vortices, 1)
-        theta = 2*np.pi*np.random.rand(self.n_vortices, 1)
-        
-        dx, dy = pol2cart(r, theta)
-        
-        pos = np.hstack((c+dx, dy))
-        
-        valid = self.validate_positions(pos)
-        
-        if not valid and self.init_breaker < self.init_max_attempts:
-            self.init_breaker = self.init_breaker + 1
-            self.init_double_cluster()
-        else:
-            self.initial_positions = pos
-
-    def validate_positions(self, pos):
-        # Grab polar coordinates fist
-        pos = np.array(cart2pol(pos))
-        r = pos[:, 0]
-        
-        # Is any position outside the boundary?
-        mask = np.sum(np.array([rad > self.domain_radius for rad in r]).astype(int))
-        
-        # If so, the sum of mask will be greater than zero, and we fail
-        if mask > 0:
-            return False
-        
-        # Todo: validate also how close they are since this can slow down simulations enormously
-        # Optional? We may want to annihilate at t = 0
-        
-        return True
-
-    # Generates vortex positions uniformly over unit disk
-    def init_random_pos(self, cartesian = False):
-        # 5377
-#        seed = 32257 # single annihilation at thr = 1e-3
-#        seed = 44594 # double annihilation at thr = 1e-2
-#        seed = 96329
-#        seed = np.random.randint(10**5)
-##        seed = 60059
-#        np.random.seed(seed)
-#        self.seed = seed
-#        print('seed: %d' % seed)
-        
-        if cartesian:
-            x = (np.random.rand(self.n_vortices, 1))*self.domain_radius
-            y = (np.random.rand(self.n_vortices, 1))*self.domain_radius
-            
-            self.initial_positions = np.hstack((x,y))
-            return
-        
-        r = np.sqrt(self.domain_radius**2*np.random.rand(self.n_vortices, 1))
-        theta = 2*np.pi*np.random.rand(self.n_vortices, 1)
-
-        # Second index is (x, y)
-        self.initial_positions = np.hstack((pol2cart(r,theta)))
-
-    # Generates the vorticity of each vortex
-    def init_circ(self, strategy):
-        c = np.zeros(self.n_vortices)
-        
-        if strategy == INIT_STRATEGY.CIRCS_ALL_POSITIVE:
-            c[:] = 1
-        elif strategy == INIT_STRATEGY.CIRCS_EVEN:
-            h = len(c) // 2
-            c[h:] = 1
-            c[:h] = -1
-        else:
-            if self.verbose:
-                print('Defaulting to uniformly distributed circulations')
-            c = int(np.random.uniform(self.n_vortices)*2-1)
-
-        self.circulations = [np.flip(np.kron(np.ones((self.n_vortices, 1)), c))]
     
     # Spawns in vortex dipoles at a given rate, separation and position
     # Note that this function DOUBLES time per iteration(!). (check by setting spawn_rate = 0 or comment out call)
@@ -806,8 +666,17 @@ class Evolver:
                                                       'Evolution')
             
         path = pathlib.Path(fname)
-        if path.exists() and path.is_file():
-            raise ValueError('This seed has already been evolved.')
+#        FOR NOW JUST OVERWRITE
+#        if path.exists() and path.is_file():
+#            resave = input("The file has already been evolved. Do you wish to overwrite? [y/n]")
+#            
+#            if resave == 'y':
+#                pass
+#            elif resave == 'no':
+#                return
+#            else:
+#                print('Invalid input. Press [y] for yes, [n] for no. Aborting...')
+#                return
             
         data = self.get_trajectory_data()
         with open(fname, "wb") as f:
@@ -835,11 +704,13 @@ recorded from t = 0. This is done as mcmc evolution requires their calculation a
 approximately converge at equilibrium.
 
 """
+
 class Evolver_MCMC:
     
     def __init__(self,
-                 n_vortices = 10,
-                 circ_init_strat = INIT_STRATEGY.CIRCS_EVEN,
+                 n_vortices,
+                 pos,
+                 circs,
                  temperature = 1e-5,
                  bbox_ratio = 50,
                  vorticity_tol = 1e-3,
@@ -861,8 +732,8 @@ class Evolver_MCMC:
         self.hooks = hooks
         
         # Set up initial vortex positions and vortex image positions
-        self.init_random_pos()
-        self.init_circ()
+        self.initial_positions = pos
+        self.circulations = circs
         
         # Get initial energies
         self.energy = [self.get_energy(i) for i in np.arange(n_vortices)]
@@ -891,39 +762,6 @@ class Evolver_MCMC:
             H.append(np.sum(self.energy))
             
         self.energy_history = H
-    
-    # Generates vortex positions uniformly over unit disk
-    def init_random_pos(self):
-        seed = np.random.randint(10**5)
-        np.random.seed(seed)
-        self.seed = seed
-        print('seed: %d' % seed)
-        
-        # Uniform polar coords
-        r = np.sqrt(np.random.rand(self.n_vortices, 1))
-        theta = 2*np.pi*np.random.rand(self.n_vortices, 1)
-
-        # Set initial positions in cartesian coordinates
-        self.pos0 = np.hstack((pol2cart(r, theta)))
-        
-        # Set the positions that we update during sweeps
-        self.pos = self.pos0
-        
-        # And create image positions
-        self.impos = [image_pos(p, self.domain_radius) for p in self.pos]
-
-    # Generates the vorticity of each vortex
-    def init_circ(self, strategy):
-        c = np.zeros(self.n_vortices)
-        
-        if strategy == INIT_STRATEGY.CIRCS_ALL_POSITIVE:
-            c[:] = 1
-        elif strategy == INIT_STRATEGY.CIRCS_EVEN:
-            h = len(c) // 2
-            c[h:] = 1
-            c[:h] = -1
-
-        self.circulations = [np.flip(np.kron(np.ones((self.n_vortices, 1)), c))]
     
     def get_angular(self, i):
         return np.dot(self.pos[i], self.pos[i])*self.circs[i]

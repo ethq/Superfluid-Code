@@ -44,8 +44,8 @@ class Conventions:
         if data_type == 'Evolution' or data_type == 'Analysis':
             fname = "Datafiles/" + data_type + fname + '.dat'
         elif data_type == 'Animation':
-            if plot_choice:
-                fname = plot_choice + fname
+            if len(plot_choice):
+                fname = '-'.join(plot_choice) + fname
             fname = "Animations/" + fname + '.mp4'
         else:
             raise ValueError('unknown data_type in Conventions.save_conventions()')

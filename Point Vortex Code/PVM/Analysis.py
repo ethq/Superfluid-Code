@@ -46,6 +46,14 @@ from PVM.Conventions import Conventions
         vortices is an array consisting of Vortex classes - dead or alive
         circulations is an (N_steps, N_vortices, N_vortices) array. 
 """
+
+class RMS_CHOICE:
+    CLUSTER = 1,
+    DIPOLE = 2,
+    FREE = 3,
+    ALL = 4,
+    FIRST_VORTEX = 5
+
 class Analysis:
     
     def __init__(self, fname = None, traj_data = None):
@@ -54,7 +62,7 @@ class Analysis:
         assert fname or traj_data
         
         if fname:
-            fname = 'Datafiles/Evolution_' + fname
+            fname = 'Datafiles/Evolution_' + fname + '.dat'
             with open(fname, "rb") as f:
                 data = pickle.load(f)                
         else:
@@ -71,8 +79,14 @@ class Analysis:
         self.clusters = []
         self.energies = []
         self.dipole_moments = []
-        self.w_pair_corr = []
-        self.rms_dist = []
+        self.pair_corr_w = []
+        self.pair_corr = []
+        self.rmsCluster = []
+        self.rmsFirstVortex = []
+        
+        self.n_total = []
+        self.n_dipole = []
+        self.n_cluster = []
     
     # Run a complete cluster analysis for all time frames
     # find_dipoles must be run prior to find_clusters; two parts of the algorithm
@@ -90,8 +104,16 @@ class Analysis:
             self.dipoles.append( self.find_dipoles(cfg) )
             self.clusters.append( self.find_clusters(cfg) )
             
+            # Vortex number statistics
+            self.n_total.append( len(cfg['ids']) ) 
+            self.n_dipole.append( len(self.dipoles[-1]) ) 
+            self.n_cluster.append( len(np.unique(self.clusters[-1])) )
+            
             # Compute RMS distance
-            self.rms_dist.append( self.get_rms_dist(i) )
+            self.rmsCluster.append( self.get_rms_dist(i, which = RMS_CHOICE.CLUSTER) )
+            
+            # Compute RMS distance of vortex id = 0
+            self.rmsFirstVortex.append( self.get_rms_dist(i, which = RMS_CHOICE.FIRST_VORTEX ) )
             
             # Compute energy
             self.energies.append( self.get_energy(i) )
@@ -100,7 +122,10 @@ class Analysis:
             self.dipole_moments.append( self.get_dipole_moment(i) )
             
             # Compute weighted pair correlation
-            self.w_pair_corr.append( self.get_pair_corr3(cfg) )
+            self.pair_corr_w.append( self.get_pair_corr3(cfg, weighted = True) )
+            
+            # Compute non-weighted pair correlation
+            self.pair_corr.append( self.get_pair_corr3(cfg) )
             
         self.energies = np.array(self.energies)
         self.dipole_moments = np.array(self.dipole_moments)
@@ -110,10 +135,23 @@ class Analysis:
         sec = tt % 60
         print('analysis complete after %d min %d sec' % (mins, sec))
         
+        return self.get_data()
+    
+    # Returns the data of a full analysis.
+    # TOOD: add flags that restrict analysis to certain properties to speed things up
+    def get_data(self):
         return {
-                'dipoles': self.dipoles,
-                'clusters': self.clusters,
-                'energies': self.energies
+            'dipoles': self.dipoles,
+            'clusters': self.clusters,
+            'n_total': np.array(self.n_total),
+            'n_dipole': np.array(self.n_dipole),
+            'n_cluster': np.array(self.n_cluster),
+            'energies': self.energies,
+            'dipoleMoment': self.dipole_moments,
+            'rmsCluster': self.rmsCluster,
+            'rmsFirstVortex': self.rmsFirstVortex,
+            'pair_corr': self.pair_corr,
+            'pair_corr_w': self.pair_corr_w
                 }
         
     def get_dipole_moment(self, i):
@@ -383,26 +421,23 @@ class Analysis:
     
     clusters: [Array]:    Contains IDs of vortices which are classified as clusters
     
-    which:    [Integer]    Can take values in [0, 4]
-                           0:   Count only clusters
-                           1:   Count only dipoles
-                           2:   Count only free 
-                           3:   Count only non-dipoles
-                           4:   Count only non-clusters
+    which:    [Integer]    Enumerated in RMS_CHOICE class.
     
     """
     
-    def get_rms_dist(self, tid, which = 0):
+    def get_rms_dist(self, tid, which = RMS_CHOICE.CLUSTER):
         # We assume a cluster analysis has been performed. For now, assert out if not
         assert tid < len(self.dipoles) and tid < len(self.clusters)
         
         # Put together the ids which we compute rms on
         ids = np.array([])
         
-        if which == 0:
+        if which == RMS_CHOICE.CLUSTER:
             ids = np.array(self.clusters[tid])
-        elif which == 1:
+        elif which == RMS_CHOICE.DIPOLE:
             ids = np.array(self.dipoles[tid])
+        elif which == RMS_CHOICE.FIRST_VORTEX:
+            ids = np.array([[0]])
         # TODO implement the rest
         
         if not len(ids):
@@ -425,9 +460,9 @@ class Analysis:
             return 0
         
         # Calculate the RMS for them
+        # Note: there is no point doing this in a loop
+        # |traj-initial_pos|^2 = rms
         srms = [np.linalg.norm(v1.get_pos(tid) - v1.get_pos(0))**2 for v1 in v]
-        
-
         
         rms = np.sqrt(1/N0*np.sum(srms))
         
@@ -492,11 +527,25 @@ class Analysis:
         # If the shell surrounding the vortex v is contained in the domain, just return the full shell area
         if r+ri < R:
             return 2*np.pi*r*dr
+        
+        # If the shell is _outside_ the domain, return infinite shell-area
+        # so that we kill the contribution to g(r) there
+        if np.abs(ri - r) >= R:
+            return np.Inf
 
         # If not, get the angle "missed" as the shell intersects the domain boundary
         x = ( R**2 - r**2 - ri**2)/(2*r*ri)
         
         theta = 2*np.arccos(x)
+        
+#        with np.warnings.catch_warnings():
+#            np.warnings.filterwarnings('error')
+#            try:
+#                theta = 2*np.arccos(x)
+##                np.warnings.warn(Warning())
+#            except Warning: 
+#                print(f"The shitty values are: R: {R}, r: {r}, ri: {ri}, x: {x}, v: {v}")
+#        
         
         # And return the shell area without the part that hits the boundary
         return r*dr*(2*np.pi - theta)
@@ -620,18 +669,27 @@ class Analysis:
                                                   'Analysis')
         
         path = pathlib.Path(fname)
-        if path.exists() and path.is_file():
-            raise ValueError('This seed has already been analyzed.')
+        resave = ''
+#         FOR NOW JUST OVERWRITE
+#        if path.exists() and path.is_file():
+#            resave = input("The file has already been analyzed. Do you wish to overwrite? [y/n]")
+#            
+#            if resave == 'y':
+#                pass
+#            elif resave == 'no':
+#                return
+#            else:
+#                print('Invalid input. Press [y] for yes, [n] for no. Aborting...')
+#                return
         
-        data = {
-            'dipoles': self.dipoles,
-            'clusters': self.clusters,
-            'energies': self.energies
-                }
+        # TODO: standardize to PlotChoice alternatives
+        data = self.get_data()
         
         with open(fname, "wb") as f:
             pickle.dump(data, f)
         
+        if resave != '':
+            print('New analysis saved.')
     
     
 if __name__ == '__main__':

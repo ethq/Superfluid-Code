@@ -55,6 +55,7 @@ class Animator:
         self.dipoles = analysis_data['dipoles']
         self.clusters = analysis_data['clusters']
         self.energies = analysis_data['energies']
+        self.rmsCluster = analysis_data['rmsCluster']
         
         # Other params
         self.animate_trails = animate_trails
@@ -96,18 +97,7 @@ class Animator:
                 }
     
         
-    """
-    Choose what to animate/plot. Possible values are enumerated in the PlotChoice class.
-    """
-    def validate_plot_choice(self, choice):
-        
-        if type(choice) == str:
-            choice = [choice]
-        
-        is_valid = np.array([c in PlotChoice.get_possible_values() for c in choice]).all()
-        
-        if not is_valid:
-            raise ValueError('Invalid choice encountered in choose_plot(), PVM animation class')
+
 
     """
     Could normalize to average energy per dipole, but probably have to do quite a few runs to get this statistic -
@@ -126,26 +116,6 @@ class Animator:
         
         times = np.linspace(start_i, i, i-start_i+1).astype(int)
         energies = self.energies[start_i:i+1]/len(self.circulations[i][0, :])
-        
-        ax.get_lines()[0].set_xdata(times)
-        ax.get_lines()[0].set_ydata(energies)
-        
-        ax.set_xlim([start_i, i])
-        ax.set_ylim([np.min(np.append(energies, 0)), 1+np.max(energies)])
-    
-    def update_energies(self, i):
-        # Avoiding some limit issues on the plot
-        if i < 2 or i > len(self.trajectories)-1:
-            return
-        
-        # Restrict ourselves to plotting the last n energies
-        n_energies = 500
-        ax = self.axes['energy']
-        
-        start_i = np.max([i-n_energies, 0])
-        
-        times = np.linspace(start_i, i, i-start_i+1).astype(int)
-        energies = self.energies[start_i:i+1]
         
         ax.get_lines()[0].set_xdata(times)
         ax.get_lines()[0].set_ydata(energies)
@@ -183,12 +153,55 @@ class Animator:
         ax.set_xlim([start_i, i])
         ax.set_ylim([0, 1+np.max(data)])
         
+    def update_energy(self, i):
+        # Avoiding some limit issues on the plot
+        if i < 2 or i > len(self.trajectories)-1:
+            return
+        
+        # Restrict ourselves to plotting the last n energies
+        n_energies = 500
+        ax = self.axes['energy']
+        
+        start_i = np.max([i-n_energies, 0])
+        
+        times = np.linspace(start_i, i, i-start_i+1).astype(int)
+        energies = self.energies[start_i:i+1]
+        
+        ax.get_lines()[0].set_xdata(times)
+        ax.get_lines()[0].set_ydata(energies)
+        
+        ax.set_xlim([start_i, i])
+        ax.set_ylim([np.min(np.append(energies, 0)), 1+np.max(energies)])
+    
+    def update_dipoleMoment(self, i):
+        pass
+    
+    def update_rmsCluster(self, i):
+        # Avoiding some limit issues on the plot
+        if i < 2 or i > len(self.trajectories)-1:
+            return
+        
+        # Restrict ourselves to plotting the last n rms
+        n_max = 500
+        
+        ax = self.axes[PlotChoice.rmsCluster]
+        
+        start_i = np.max([i-n_max, 0])
+        
+        times = np.linspace(start_i, i, i-start_i+1).astype(int)
+        rms = self.rmsCluster[start_i:i+1]
+        
+        ax.get_lines()[0].set_xdata(times)
+        ax.get_lines()[0].set_ydata(rms)
+        
+        ax.set_xlim([start_i, i])
+        ax.set_ylim([np.min(np.append(rms, 0)), 1+np.max(rms)])
     
     """
     Since I am clearning all lines anyway, there is little point in keeping the y_lines as class members
     TODO: just store the axes then use get_lines() here and proceed as before
     """
-    def update_trajectories(self, i):
+    def update_vortices(self, i):
         # Are we done?
         if i >= self.n_steps:
             self.ani.event_source.stop()
@@ -318,7 +331,7 @@ class Animator:
         ax = self.axes['vortices']
         
         # First add axis for the animation of vortices
-#        ax = f.add_subplot(211, polar = True)
+        # ax = f.add_subplot(211, polar = True)
         ax.grid(False)
         ax.set_xticklabels([])    # Remove radial labels
         ax.set_yticklabels([])    # Remove angular labels
@@ -343,80 +356,116 @@ class Animator:
         self.vortex_lines = vlines
         self.dipole_lines = dlines
         self.cluster_lines = clines
-            
-    def axsetup_energy(self):
-        axe = self.axes['energy']
-        
-        axe.grid(False)
-        axe.plot([], [])
-        axe.set_title('Energy deviation')
-        axe.set_xlabel('Frame')
-        axe.set_ylabel('Deviation')
     
+    def axsetup(self, choice):
+        if PlotChoice.vortices in choice:
+            self.axsetup_vortices()
+        
+        ax_props = {
+                PlotChoice.energy: 
+                    {
+                        'title': 'Energy deviation',
+                        'xlabel': 'Frame',
+                        'ylabel': 'Deviation',
+                        'labels': ['Energy deviation'],
+                        'lines': 1
+                    },
+                PlotChoice.dipoleMoment:
+                    {
+                        'title': 'Dipole moment',
+                        'xlabel': 'Frame',
+                        'ylabel': 'Deviation',
+                        'labels': ['Dipole moment'],
+                        'lines': 1
+                    },
+                PlotChoice.numberOfVortices:
+                    {
+                        'title': 'Number of vortices',
+                        'xlabel': 'Frame',
+                        'ylabel': 'Count',
+                        'labels': ['Total', 'Dipoles', 'Clusters', 'Free'],
+                        'lines': 4
+                    },
+                PlotChoice.rmsCluster:
+                    {
+                        'title': 'RMS distance in clusters',
+                        'xlabel': 'Frame',
+                        'ylabel': 'RMS distance',
+                        'labels': ['RMS distance'],
+                        'lines': 1
+                    },
+                PlotChoice.energyPerVortex:
+                    {
+                          'title': 'Energy per vortex',
+                          'xlabel': 'Frame',
+                          'ylabel': 'Energy',
+                          'labels': ['Energy per vortex'],
+                          'lines': 1
+                    }
+                }
+                    
+        # Only set up the statistic axes
+        choice = choice[choice != PlotChoice.vortices]
+        
+        for c in choice:
+            axe = self.axes[c]
+        
+            axe.grid(False)
+            
+            p = ax_props[c]
+            for i in np.arange(p['lines']):
+                axe.plot([], [], label = p['labels'][i])
+            
+            axe.set_title(p['title'])
+            axe.set_xlabel(p['xlabel'])
+            axe.set_ylabel(p['ylabel'])
+            
+            if len(p['labels']) > 1:
+                axe.legend()
+
     """
     Sets up layout given a choice. Assumes the corresponding axes have been set up and are contained in self.axes
     """
     def layout(self, choice, f):
-        # Gather settings with the same layout
-        vortices_one_statistic = [
-                PlotChoice.vortices_energy, 
-                PlotChoice.vortices_energyPerVortex,
-                PlotChoice.vortices_numberOfVortices,
-                            ]
+        # Doing just one statistic?
+        single_statistic = ''
+        show_vortex = PlotChoice.show_vortex(choice)
         
-        if PlotChoice.show_vortex(choice):
-            self.axes['vortices'] = f.add_subplot(1, 2, 1, polar = True)
+        if show_vortex:
+            # Are we doing just vortices & a single statistic? If so, add axes manually here
+            if len(choice) == 2:
+                single_statistic = choice[choice != PlotChoice.vortices][0]
+                
+                self.axes[PlotChoice.vortices] = f.add_subplot(2, 1, 1, polar = True)
+                self.axes[single_statistic] = f.add_subplot(2, 1, 2)
+            else:
+                self.axes[PlotChoice.vortices] = f.add_subplot(1, 2, 1, polar = True)
+       
+        # If we have more statistics, add plots manually
+        if single_statistic == '':
+            plot_ctr = 2
+            for c in choice:
+                if c == PlotChoice.vortices:
+                    continue
+                
+                # Rows = # of statistics - possible vortex, Cols = 1 if only statistics, 2 if vortices also.
+                self.axes[c] = f.add_subplot(len(choice) - int(show_vortex), 2 - int(not show_vortex), plot_ctr)
+                
+                # Increment by 2 to skip vortex column if present.
+                plot_ctr = plot_ctr + 2 - int(not show_vortex)
         
-        # We'll try with vortices on the left and statistics on the right. Should be easy to switch to sth else
-        f.add_subplot(1, 2, 1)
+        # Setup all the different axes(label text etc)
+        self.axsetup(choice)
         
-        plot_ctr = 2
-        for c in choice:
-            if c == PlotChoice.vortices:
-                continue
-            
-            self.axes[c] = f.add_subplot(3, 2, plot_ctr)
-            plot_ctr = plot_ctr + 2
-        
-        if choice == PlotChoice.vortices_energy:
-            self.axes['vortices'] = f.add_subplot(211, polar = True)
-            self.axes['energy'] = f.add_subplot(212)
-            
-            self.axsetup_vortices()
-            self.axsetup_energy()
-        
-        elif choice == PlotChoice.vortices_numberOfVortices:
-            self.axes['vortices'] = f.add_subplot(211, polar = True)
-            self.axes['numberOfVortices'] = f.add_subplot(212)
-            
-            self.axsetup_vortices()
-            self.axsetup_number()
-            
-        elif choice == PlotChoice.vortices_energyPerVortex:
-            self.axes['vortices'] = f.add_subplot(211, polar = True)
-            self.axes['energyPerVortex'] = f.add_subplot(212)
-            
-            self.axsetup_vortices()
-            self.axsetup_energypervortex()
-        else:
-            raise ValueError('Unrecognized plotting choice in Animator')
-        
-        
-        if choice in vortices_one_statistic:
-            # get the relevant statistic axis
-            if choice == PlotChoice.vortices_numberOfVortices:
-                ax = self.axes['numberOfVortices']  
-            elif choice == PlotChoice.vortices_energyPerVortex:
-                ax = self.axes['energyPerVortex']
-            elif choice == PlotChoice.vortices_energy:
-                ax = self.axes['energy']
-            
+        # TODO Possible we could replace with tight_layout?
+        if single_statistic != "": 
+            ax = self.axes[single_statistic]
             # Adjust the statistic axis
             box = ax.get_position()
             ax.set_position([box.x0, box.y0, box.width, box.height*0.5])
         
             # Adjust the vortex axis
-            ax = self.axes['vortices']
+            ax = self.axes[PlotChoice.vortices]
             box = ax.get_position()
             xratio = 1.8
             yratio = 1.8
@@ -425,33 +474,7 @@ class Animator:
             # A little further down..
             nbox[-1] = nbox[-1] - 0.1
             ax.set_position(nbox)    
-    
-    def axsetup_energyPerVortex(self, f):
-        axe = self.axes['energyPerVortex']
-        
-        axe.grid(False)
-        axe.plot([], [])
-        axe.set_title('Energy per vortex')
-        axe.set_xlabel('Frame')
-        axe.set_ylabel('Energy')
-    
-    def axsetup_numberOfVortices(self, f):
-        axe = self.axes['numberOfVortices']
-        
-        axe.grid(False)
-        
-        # Create 4 line objects: all vortices, free vortices, dipoles and clusters
-        axe.plot([], [], label = 'Total vortices')
-        axe.plot([], [], label = 'Free vortices')
-        axe.plot([], [], label = 'Dipoles')
-        axe.plot([], [], label = 'Clusters')
-        
-        
-        axe.set_title('Number statistics')
-        axe.set_xlabel('Frame')
-        axe.set_ylabel('Count')
-        axe.legend()
-    
+
     
     """
     Saves animation of the datafile passed in the constructor.
@@ -476,33 +499,22 @@ class Animator:
     action:        [string] either 'show' or 'save. 
     """
     def animate(self, choice, action = 'save'):
-        self.validate_plot_choice(choice)
+        # Check if valid choice, turns into np.array if not already
+        choice = PlotChoice.validate_plot_choice(choice)
         
+        # Create the figure, we need it in this scope due to FuncAnimation
         f = plt.figure()
         
-        # Jump table to avoid enormous if-else block. Picks out a set of update_funcs depending on plot choice.
-        choice_table = {
-                PlotChoice.vortices_energy: [
-                        self.update_energies, 
-                        self.update_trajectories
-                        ],
-                PlotChoice.vortices_numberOfVortices: [
-                        self.update_trajectories,
-                        self.update_numberOfVortices
-                        ],
-                                                       
-                PlotChoice.vortices_energyPerVortex: [
-                        self.update_trajectories,
-                        self.update_energyPerVortex
-                        ]
-                }
+        # Get all the hooks
+        update_funcs = [getattr(self, 'update_' + c) for c in choice]
         
-        update_funcs = choice_table.get(choice)
+        # Wrap all hooks in a single lambda, as FuncAnimation supports only one
+        on_update = lambda i: [v(i) for v in update_funcs]
         
         # Sets up axes & layout
         self.layout(choice, f)
         
-        on_update = lambda i: [v(i) for v in update_funcs]
+        # Create the animation
         self.ani = animation.FuncAnimation(f, on_update, interval = 1)
         
         # Save to file if desired
@@ -521,9 +533,11 @@ class Animator:
                                                       self.settings['seed'],
                                                       plot_choice = choice,
                                                       data_type = 'Animation')
-            path = pathlib.Path(self.fname)
-            if path.exists() and path.is_file():
-                raise ValueError('This animation already exists.')
+
+#           FOR NOW JUST OVERWRTE
+#            path = pathlib.Path(self.fname)
+#            if path.exists() and path.is_file():
+#                raise ValueError('This animation already exists.')
                 
             
             print('saving animation')

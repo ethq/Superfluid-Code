@@ -22,18 +22,14 @@ import numpy as np
 
 
 class PlotChoice:
+    # Only use these(in combination if desired)
     vortices = 'vortices'
-    vortices_energy = 'vortices_energy'
-    vortices_numberOfVortices = 'vortices_numberOfVortices'
-    vortices_energyPerVortex = 'vortices_energyPerVortex'
-    vortices_dipoleMoment = 'vortices_dipoleMoment'
-    vortices_rmsCluster = 'vortices_rmsCluster'
-    
     energy = 'energy'
     numberOfVortices = 'numberOfVortices'
     energyPerVortex = 'energyPerVortex'
     dipoleMoment = 'dipoleMoment'
     rmsCluster = 'rmsCluster'
+    rmsFirstVortex = 'rmsFirstVortex'
     
     def show_vortex(choice):
         if type(choice) == str:
@@ -41,11 +37,37 @@ class PlotChoice:
         
         return np.array(['vortices' in c for c in choice]).any()
             
+    """
+    Validate a given choice
+    """
+    def validate_plot_choice(choice):
+        # Single choice?
+        if type(choice) == str:
+            choice = np.array([choice])
+            
+        # It's important that it's a numpy array. list and numpy array have slightly 
+        # different behaviour, e.g. indexing of type a[a!=b] returns the first element
+        # satisfying the condition if a is a list, a numpy array returns a numpy array
+        # containing _all_ elements satisfying the condition
         
+        if type(choice) != np.ndarray:
+            choice = np.array(choice)
+        
+        is_valid = np.array([c in PlotChoice.get_possible_values() for c in choice]).all()
+        
+        if not is_valid:
+            raise ValueError('Invalid plot choice encountered.') 
+    
+        return choice
+    
     
     def get_possible_values():
         return [
-            PlotChoice.vortices_energy,
-            PlotChoice.vortices_energyPerVortex,
-            PlotChoice.vortices_numberOfVortices
+            PlotChoice.vortices,
+            PlotChoice.dipoleMoment,
+            PlotChoice.energy,
+            PlotChoice.numberOfVortices,
+            PlotChoice.energyPerVortex,
+            PlotChoice.rmsCluster,
+            PlotChoice.rmsFirstVortex
             ]
