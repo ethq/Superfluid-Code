@@ -9,7 +9,7 @@ import ctypes
 import PVM as pvm
 
 # First set up initial conditions
-n_vortices = 20
+n_vortices = 26
 domain_radius = 50
 
 params = {
@@ -21,7 +21,7 @@ cfg = pvm.Configuration(
         n_vortices,
         domain_radius,
         pvm.CONFIG_STRAT.SINGLE_CLUSTER,
-        pvm.CONFIG_STRAT.CIRCS_ALL_POSITIVE,
+        pvm.CONFIG_STRAT.CIRCS_EVEN,
         None,
         params,
         {

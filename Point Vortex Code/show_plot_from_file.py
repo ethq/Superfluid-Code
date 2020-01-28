@@ -17,8 +17,12 @@ import PVM as pvm
 
 
 fname = 'N20_T50_S768390681'
+fname = 'N20_T50_S457173602'
+fname = 'N20_T50_S869893185'
+fname = 'N26_T50_S717109192'
+
 plotter = pvm.HarryPlotter(fname)
 
-pc = [pvm.PlotChoice.smallestDistance, pvm.PlotChoice.energyImageReal]
+pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.energyImageReal, pvm.PlotChoice.energy]
 
 plotter.plot(pc)

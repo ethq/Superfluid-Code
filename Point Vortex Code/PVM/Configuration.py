@@ -136,7 +136,7 @@ class Configuration:
                                        [0.5*np.cos(np.pi), 0.5*np.sin(np.pi)]])
     
     def opposite_2(self, p):
-        self.pos = np.array([[.5, 0], [-.5, 0]])
+        self.pos = np.array([[.7, 0], [-.7, 0]])
     
     
     """
@@ -198,6 +198,27 @@ class Configuration:
         c = np.ones(self.n_vortices)
         h = self.n_vortices // 2
         c[:h] = -1
+        
+#        c[0] = -1
+#        c[1] = 1
+#        c[2] = -1
+#        c[3] = -1
+#        c[4] = -1
+#        c[5] = -1
+#        c[6] = 1
+#        c[7] = -1
+#        c[8] = -1
+#        c[9] = 1
+#        c[10] = 1
+#        c[11] = -1
+#        c[12] = -1
+#        c[13] = 1
+#        c[14] = 1
+#        c[15] = 1
+#        c[16] = 1
+#        c[17] = -1
+#        c[18] = 1
+#        c[19] = 1
         
         self.circ = c
     

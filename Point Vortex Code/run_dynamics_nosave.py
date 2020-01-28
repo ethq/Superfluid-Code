@@ -9,7 +9,7 @@ import ctypes
 import PVM as pvm
 
 # First set up initial conditions
-n_vortices = 6
+n_vortices = 4
 domain_radius = 1
 
 params = {
@@ -21,8 +21,8 @@ cfg = pvm.Configuration(
         n_vortices,
         domain_radius,
         pvm.CONFIG_STRAT.SINGLE_CLUSTER,
-        pvm.CONFIG_STRAT.CIRCS_EVEN,
-        18817436,
+        pvm.CONFIG_STRAT.CIRCS_ALL_POSITIVE,
+        457173602,
         params
         )
 
@@ -36,7 +36,7 @@ ev_config = {
     }
 
 evolver = pvm.Evolver(**ev_config)
-evolver.rk4()
+evolver.rk()
 
 traj_data = evolver.get_trajectory_data()
 

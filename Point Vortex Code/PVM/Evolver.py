@@ -71,7 +71,7 @@ def calc_dist_mesh(pos, domain_radius, n_vortices):
     # temp variables for calcing distance between voritces and between voritces & images
     yy_temp = yvec_mesh - yvec_mesh.T
     xx_temp = xvec_mesh.T - xvec_mesh
-
+    
     yyp_temp = yvec_im_mesh - yvec_mesh.T
     xxp_temp = xvec_im_mesh.T - xvec_mesh
 
@@ -92,7 +92,7 @@ class Evolver:
                  cfg,
                  T = 50,
                  dt = 0.01,
-                 tol = 1e-12,
+                 tol = 1e-8,
                  max_iter = 15,
                  annihilation_threshold = 1e-2,
                  verbose = True,
@@ -395,16 +395,24 @@ class Evolver:
         circ = self.circulations[-1]
         
         # Conservative dynamics
-        dx = -np.sum(circ.T*yy_temp.T/rr1, 0).T
-        dy = np.sum(circ.T*xx_temp.T/rr1, 0).T 
+        dxc = -np.sum(circ.T*yy_temp.T/rr1, 0).T
+        dyc = np.sum(circ.T*xx_temp.T/rr1, 0).T 
+        
+#        print(f'dx: {dx}, dy: {dy}')
         
         # Contribution from images
-        dx = dx - np.sum(circ*yyp_temp.T/rr2, 1)
-        dy = dy + np.sum(circ*xxp_temp.T/rr2, 1)
+        dxi = - np.sum(circ*yyp_temp.T/rr2, 1)
+        dyi = + np.sum(circ*xxp_temp.T/rr2, 1)
+        
+#        print(f'dxi: {dxi}, dyi: {dyi}')
         
         # Dissipative dynamics
-        dx = dx + self.gamma*np.sum(circ*circ.T*xx_temp.T/rr1, 0).T
-        dy = dy - self.gamma*np.sum(circ*circ.T*yy_temp.T/rr1, 0).T
+        dxd = + self.gamma*np.sum(circ*circ.T*xx_temp.T/rr1, 0).T
+        dyd = - self.gamma*np.sum(circ*circ.T*yy_temp.T/rr1, 0).T
+        
+        # Sum contributions
+        dx = dxc + dxi + dxd
+        dy = dyc + dyi + dyd
 
         return 1/(2*np.pi)*np.hstack((dx[:, np.newaxis], dy[:, np.newaxis]))
 

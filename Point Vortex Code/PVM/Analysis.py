@@ -624,6 +624,8 @@ class Analysis:
     vortex_id: [Integer] if specified, returns _only_ the energy for the given vortex
     """
     def get_energy(self, frame, stacked = False, vortex_id = -1, debug = False):
+        # Shortcut for radius
+        R = self.settings['domain_radius']
         
         # Hamiltonian
         H = 0
@@ -680,10 +682,14 @@ class Analysis:
                 
                 v2ip = np.array(v2.get_impos(frame, self.settings['domain_radius']))
                 
-                ri2 = eucl_dist(v1p, v2ip)
+                ri2 = np.sqrt(eucl_dist(v1p, v2ip))
                 
                 # Note the plus compared to minus for real vortices. This compensates for the fact that images have opposite sign.
-                dH2 = v1.circ*v2.circ/np.pi*np.log(ri2)
+                dH2 = 2*v1.circ*v2.circ/np.pi*np.log(ri2*np.linalg.norm(v2p))
+
+#                # Same, just expanded. https://cims.nyu.edu/~obuhler/StatMechVort/BuhlerPF02.pdf
+#                dH2 = v1.circ*v2.circ/np.pi*np.log(R**4 - 2*R**2*np.dot(v1p, v2p) + np.dot(v1p, v1p)*np.dot(v2p, v2p))
+                
                 H = H + dH2
                 dhi = dhi + dH2
                 
@@ -691,6 +697,7 @@ class Analysis:
                     H2[v1.id] = H2[v1.id] + dH2
                     if v1.id != v2.id:
                         H2[v1.id] = H2[v1.id] + dH1
+            
             if stacked:
                 return H2
             
