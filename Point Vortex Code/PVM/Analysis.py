@@ -455,6 +455,10 @@ class Analysis:
     
     which:    [Integer]    Enumerated in RMS_CHOICE class.
     
+    
+    Returns:
+        Tuple containing (rms, id) where rms(id) is a length N array for N vortices
+    
     """
     
     def get_rms_dist(self, tid, which = RMS_CHOICE.CLUSTER):
@@ -475,14 +479,11 @@ class Analysis:
         if not len(ids):
             return 0
         
+        # Since the id arrays are of type [[id1, id2], [id3, id4], ...], we concatenate
         ids = np.concatenate(ids)
         
         # Get the living and matching vortices
         mask = [v.is_alive(tid) and v.id in ids for v in self.vortices]
-#        mask1 = [v.is_alive(tid) for v in self.vortices]
-#        mask2 = [v.id in ids for v in self.vortices]
-#        mask3 = mask1 and mask2
-#        print(ids)
         v = self.vortices[mask]
         
         # Number of vortices we count
@@ -494,11 +495,9 @@ class Analysis:
         # Calculate the RMS for them
         # Note: there is no point doing this in a loop
         # |traj-initial_pos|^2 = rms
-        srms = [np.linalg.norm(v1.get_pos(tid) - v1.get_pos(0))**2 for v1 in v]
+        srms = [np.linalg.norm(v1.get_pos(tid))**2 for v1 in v]
         
-        rms = np.sqrt(1/N0*np.sum(srms))
-        
-        return rms
+        return srms
     
     """ 
     cfg is expected of form (N, 2) in cartesian coordinates

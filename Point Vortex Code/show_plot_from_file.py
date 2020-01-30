@@ -20,6 +20,10 @@ fname = 'N20_T50_S768390681'
 fname = 'N20_T50_S457173602'
 fname = 'N20_T50_S869893185'
 fname = 'N26_T50_S717109192'
+fname = 'N10_T50_S87655771'
+fname = 'N10_T50_S996866482'
+fname = 'N10_T50_S873349814'
+fname = 'N10_T150_S393963592'
 
 plotter = pvm.HarryPlotter(fname)
 

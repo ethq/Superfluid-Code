@@ -9,19 +9,19 @@ import ctypes
 import PVM as pvm
 
 # First set up initial conditions
-n_vortices = 26
-domain_radius = 50
+n_vortices = 10
+domain_radius = 20
 
 params = {
         'center': [1e-4, 1e-4],
-        'sigma': 20
+        'sigma': 5
         }
 
 cfg = pvm.Configuration(
         n_vortices,
         domain_radius,
         pvm.CONFIG_STRAT.SINGLE_CLUSTER,
-        pvm.CONFIG_STRAT.CIRCS_EVEN,
+        pvm.CONFIG_STRAT.CIRCS_ALL_BUT_ONE_POSITIVE,
         None,
         params,
         {
@@ -29,11 +29,12 @@ cfg = pvm.Configuration(
         }
         )
 
+T = 500
 ev_config = {
     'n_vortices': n_vortices,
     'domain_radius': domain_radius,
     'gamma': 0,
-    'T': 50,
+    'T': T,
     'spawn_rate': 0,
     'cfg': cfg
     }
@@ -52,4 +53,12 @@ analysis.save()
 #animator = pvm.Animator(None, traj_data, analysis_data)
 #animator.save_animation(pc)
 
-ctypes.windll.user32.FlashWindow(ctypes.windll.kernel32.GetConsoleWindow(), True)
+fname = f'N{n_vortices}_T{T}_S{evolver.seed}'
+
+plotter = pvm.HarryPlotter(fname)
+
+pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.energyImageReal, pvm.PlotChoice.energy]
+
+plotter.plot(pc)
+
+#ctypes.windll.user32.FlashWindow(ctypes.windll.kernel32.GetConsoleWindow(), True)

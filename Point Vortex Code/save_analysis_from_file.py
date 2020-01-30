@@ -9,7 +9,17 @@ import PVM as pvm
 
 # Assumes the seed has been evolved
 
-fname = 'N20_T50_S768390681'
-analysis = pvm.Analysis(fname)
-analysis.full_analysis()
-analysis.save()
+names =  [
+        'N20_T50_S768390681',
+        'N20_T50_S457173602',
+        'N20_T50_S869893185',
+        'N26_T50_S717109192',
+        'N10_T50_S87655771',
+        'N10_T50_S996866482',
+        'N10_T50_S873349814'
+        ]
+
+for fname in names:
+    analysis = pvm.Analysis(fname)
+    analysis.full_analysis()
+    analysis.save()

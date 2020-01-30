@@ -14,7 +14,8 @@ class CONFIG_STRAT:
     OFFCENTER_2 = 'offcenter_2'
     OPPOSITE_2 = 'opposite_2'
     SINGLE_CLUSTER = 'single_cluster'
-    SINGLE_VORTEX_IN_CLOUD = 'single_vortex_in_cloud'
+    SINGLE_VORTEX_IN_CLOUD = 'single_vortex_in_cloud',
+    EDGE_6 = 'edge_6'
     
     CIRCS_ALL_POSITIVE = 'circs_all_positive'
     CIRCS_ALL_BUT_ONE_POSITIVE = 'circs_all_but_one_positive'
@@ -179,6 +180,13 @@ class Configuration:
         
         # Center particle zero
         self.pos[0, :] = mu
+        
+    def edge_6(self, p):
+        theta = (np.pi/3*np.arange(6))[:, np.newaxis]
+        r = (np.ones(6)*(self.domain_radius - 1e-1))[:, np.newaxis]
+        
+        x, y = pol2cart(r, theta)
+        self.pos = np.hstack((x, y))
         
     
     def circs_all_positive(self, p):

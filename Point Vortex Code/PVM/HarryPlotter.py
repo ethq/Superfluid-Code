@@ -122,6 +122,7 @@ class HarryPlotter:
                         'data': [analysis_data['n_total'], analysis_data['n_dipole'], analysis_data['n_cluster'], 
                                  analysis_data['n_total'] - analysis_data['n_dipole'] - analysis_data['n_cluster']]
                     },
+                ## Careful... clusters change size and decomposition, in general.
                 PlotChoice.rmsCluster:
                     {
                         'title': 'RMS distance in clusters',
@@ -129,7 +130,7 @@ class HarryPlotter:
                         'ylabel': 'RMS distance',
                         'labels': ['RMS distance'],
                         'lines': 1,
-                        'data': [analysis_data['rmsCluster']]
+                        'data': [np.mean(analysis_data['rmsCluster'], axis = 1) - np.mean(np.array(analysis_data['rmsCluster'])[0, :])]
                     },
                 PlotChoice.rmsFirstVortex:
                     {
@@ -185,6 +186,17 @@ class HarryPlotter:
             if j >= 1:
                 axes[i].legend()
         plt.show()
+    
+    
+    
+    # Simply routine to center rms cluster data(e.g. removing the initial rms position of the vortices considered)
+    # This needs both ids and rmsCluster
+    def center_rmsCluster(self, rmsCluster):
+        
+    
+    
+    
+    
     
     """
     
