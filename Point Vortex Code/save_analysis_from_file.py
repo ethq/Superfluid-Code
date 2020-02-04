@@ -6,20 +6,27 @@ Created on Thu Nov 21 10:42:32 2019
 """
 
 import PVM as pvm
+import subprocess
 
 # Assumes the seed has been evolved
 
 names =  [
-        'N20_T50_S768390681',
-        'N20_T50_S457173602',
-        'N20_T50_S869893185',
-        'N26_T50_S717109192',
-        'N10_T50_S87655771',
-        'N10_T50_S996866482',
-        'N10_T50_S873349814'
+    'N20_T500_S402701135',
+    'N30_T500_S144692810',
+    'N40_T500_S517932362'
         ]
 
 for fname in names:
     analysis = pvm.Analysis(fname)
     analysis.full_analysis()
     analysis.save()
+    
+# If analysis complete, evolve & run new seeds.
+    
+N = 50
+i = 0
+
+# Note, subprocess returns only when process is complete. So we don't run 50 concurrent evolutions.
+while i < N:
+    subprocess.call('python run_dynamics_save.py')
+    i = i + 1

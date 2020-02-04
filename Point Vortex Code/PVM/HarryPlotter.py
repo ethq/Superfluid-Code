@@ -72,12 +72,8 @@ class HarryPlotter:
             
         self.n_steps = self.settings['n_steps']
         
-        # vortices spinning cw(ccw) are coloured black(red)
-        red = (*hex2one('#383535'), 0.7)
-        black = (*hex2one('#bd2b2b'), 0.7)
-        self.vortex_colours = {-1: black, 1: red} # Indexed by ciculation
-        self.dipole_colour = '#c0e39d'
-        self.cluster_colour = '#57769c'
+        # Set colours
+        [setattr(self, k, v) for k,v in Conventions.colour_scheme().items()]
         
         self.symbols = {
                 'free_vortex': '^',
@@ -85,6 +81,8 @@ class HarryPlotter:
                 'cluster_vortex': 's'
                 }
         
+        # IMPORTANT:
+        # When Harry is plotting, he loops over data even if it contains only one line object. So, use data = [data] in this case.        
         self.ax_props = {
                 PlotChoice.energy: 
                     {
@@ -122,7 +120,6 @@ class HarryPlotter:
                         'data': [analysis_data['n_total'], analysis_data['n_dipole'], analysis_data['n_cluster'], 
                                  analysis_data['n_total'] - analysis_data['n_dipole'] - analysis_data['n_cluster']]
                     },
-                ## Careful... clusters change size and decomposition, in general.
                 PlotChoice.rmsCluster:
                     {
                         'title': 'RMS distance in clusters',
@@ -130,7 +127,16 @@ class HarryPlotter:
                         'ylabel': 'RMS distance',
                         'labels': ['RMS distance'],
                         'lines': 1,
-                        'data': [np.mean(analysis_data['rmsCluster'], axis = 1) - np.mean(np.array(analysis_data['rmsCluster'])[0, :])]
+                        'data': [[np.sqrt(np.sum(d)) for d in analysis_data['rmsCluster']]]
+                    },
+                PlotChoice.rmsNonDipoleNonCentered:
+                    {
+                         'title': 'RMS distance in non-dipoles, relative to initial positions',
+                         'xlabel': 'Frame',
+                         'ylabel': 'RMS distance',
+                         'labels': ['RMS distance'],
+                         'lines': 1,
+                         # 'data': [[np.sqrt(np.sum(d)) for d in analysis_data['rmsNonDipoleNonCentered']]]
                     },
                 PlotChoice.rmsFirstVortex:
                     {
@@ -169,6 +175,7 @@ class HarryPlotter:
     def plot(self, choice, frame = 0):
         choice = PlotChoice.validate_plot_choice(choice)
         f = plt.figure()
+        f.suptitle(f"Seed: {self.settings['seed']}")
         
         axes = [f.add_subplot(len(choice), 1, i) for c, i in zip(choice, 1+np.arange(len(choice)))]
         
@@ -188,15 +195,78 @@ class HarryPlotter:
         plt.show()
     
     
-    
-    # Simply routine to center rms cluster data(e.g. removing the initial rms position of the vortices considered)
-    # This needs both ids and rmsCluster
-    def center_rmsCluster(self, rmsCluster):
+    def _plot_cfg_t(self, i):
+        cfg = get_active_vortex_cfg(self.vortices, i)
+        pos = cfg['positions']
+        ids = cfg['ids']
         
-    
-    
-    
-    
+        # TODO Could actually be replaced by an indexof call:
+        # we get id from dipoles/clusters, then indexof, use it for pos
+        idmap = dict(zip(ids, np.linspace(0, len(ids)-1, len(ids)).astype(int)))
+        
+        # Dipoles/clusters at time i
+        dipoles = self.dipoles[i]
+        clusters = self.clusters[i]
+
+        # Create figure
+        f = plt.figure()
+        ax = f.add_subplot(111, projection = 'polar')
+        ax.grid(False)
+
+        # Plot dipoles first
+        
+        # Loop over dipole ids pairwise
+        for id_k, id_j in zip(dipoles[0::2], dipoles[1::2]):
+            k = idmap[id_k]
+            j = idmap[id_j]
+            
+            x = np.array([pos[k][0], pos[j][0]])[:, np.newaxis]
+            y = np.array([pos[k][1], pos[j][1]])[:, np.newaxis]
+
+            r, t = cart2pol(x, y)
+            
+            ax.plot(t, r, color = self.dipole_colour)
+
+
+        # Then plot clusters
+        c_counter = 0
+            
+        # Loop over clusters
+        for c in clusters:
+            # Find the indices in the current configuration corresp. cluster ids
+            cinds = [idmap[cid] for cid in c]
+            cpos = pos[cinds, :]
+            x, y = cpos[:,0], cpos[:,1]
+            
+            r, t = cart2pol(x, y)
+
+            ax.plot(t, r, color = self.cluster_colour)
+
+        # Merge all cluster arrays to easily check if a vortex is clustered
+        cluster_ids = list(chain.from_iterable(clusters))
+
+        # Plot vortices themselves - convenient to iterate over ids here
+        
+        for j, v in enumerate(self.vortices):
+            # We use this to method to avoid setting line colours midway
+            if not v.is_alive(i):
+                continue
+            
+            x, y = v.get_pos(i)
+            r, theta = cart2pol(x, y)
+
+            # Plot vortices themselves
+            marker = '^'
+
+            if v.id in dipoles:
+                marker = 'o'
+            elif v.id in cluster_ids:
+                marker = 's'
+
+            ax.plot(theta, r, marker = marker, ls='', markeredgecolor = 'black', markeredgewidth='1', markerfacecolor = self.vortex_colours[v.circ], zorder = 1e3) 
+            
+        ax.set_title(f"Vortex configuration, seed: {self.settings['seed']}")
+        f.show()
     
     """
     
@@ -205,7 +275,17 @@ class HarryPlotter:
         A dictionary with keys 'positions', 'circulations' and 'ids'. 'ids' are not used and may be left empty.
     
     """
-    def plot_cfg(cfg):
+    def plot_cfg(self, cfg = None, time = -1, percent = -1):
+        # Plot using own data:
+        if not cfg:
+            if percent >= 0:
+                time = int(np.floor( percent/100*len(self.energies) ))
+            
+            # If no config passed, we should have some non-negative time
+            assert time != -1
+            self._plot_cfg_t(time)
+            return
+        
         plt.figure()
         
         pos = cfg['positions']

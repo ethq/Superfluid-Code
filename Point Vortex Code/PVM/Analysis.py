@@ -16,7 +16,7 @@ import collections
 import pickle
 import pathlib
 
-from PVM.Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices, get_active_vortex_cfg
+from PVM.Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices, get_active_vortex_cfg, merge_common
 from PVM.Vortex import Vortex
 
 from PVM.Conventions import Conventions
@@ -52,11 +52,17 @@ class RMS_CHOICE:
     DIPOLE = 2,
     FREE = 3,
     ALL = 4,
-    FIRST_VORTEX = 5
+    FIRST_VORTEX = 5,
+    ALL_BUT_DIPOLE = 6,
+    
+    REL_INITIAL_POS = 998,
+    REL_ORIGIN = 999
 
 class Analysis:
     
-    def __init__(self, fname = None, traj_data = None):
+    def __init__(self, fname = None, traj_data = None, options = {
+            'frameskip': 1
+            }):
         
         # We must either have a datafile or get the data directly passed to us
         assert fname or traj_data
@@ -70,6 +76,7 @@ class Analysis:
         
         self.fname = fname
         
+        self.options = options
         self.settings = data['settings']
         self.vortices = data['vortices']
         self.trajectories = data['trajectories']
@@ -83,8 +90,12 @@ class Analysis:
         self.pair_corr_w = []
         self.pair_corr = []
         self.rmsCluster = []
+        self.rmsNonDipole = []
+        self.rmsNonDipoleNonCentered = []
         self.rmsFirstVortex = []
         self.smallestDistance = []
+        
+        self.autocorrelation = []
         
         self.n_total = []
         self.n_dipole = []
@@ -92,13 +103,17 @@ class Analysis:
     
     # Run a complete cluster analysis for all time frames
     # find_dipoles must be run prior to find_clusters; two parts of the algorithm
-    # TOOD add analysis options, we may certainly not want to compute -everything-
+    # TOOD add analysis options, we may certainly not want to compute -everything-, 
+    # Or on every frame...
     def full_analysis(self):
         st = time.time()
         print('starting analysis')
         
         # Loop over time
         for i in np.arange(self.settings['n_steps']):
+            if i % self.options['frameskip']:
+                continue
+            
             # Construct configuration with id map
             cfg = get_active_vortex_cfg(self.vortices, i)
             
@@ -112,13 +127,22 @@ class Analysis:
             self.n_cluster.append( len(np.unique(self.clusters[-1])) )
             
             # Compute smallest distance(does this cause problems with image energies..???)
-            self.smallestDistance.append( self.get_smallest_distance(i) )
+            # self.smallestDistance.append( self.get_smallest_distance(i) )
+            
+            # Compute RMS distance for non-dipoles
+            self.rmsNonDipole.append( self.get_rms_dist(i, which = RMS_CHOICE.ALL_BUT_DIPOLE) )
+            
+            # Compute RMS distance for non-dipoles, the Barenghi way
+            self.rmsNonDipoleNonCentered.append( self.get_rms_dist(i, which = RMS_CHOICE.ALL_BUT_DIPOLE, rel = RMS_CHOICE.REL_INITIAL_POS))
             
             # Compute RMS distance
             self.rmsCluster.append( self.get_rms_dist(i, which = RMS_CHOICE.CLUSTER) )
             
             # Compute RMS distance of vortex id = 0
             self.rmsFirstVortex.append( self.get_rms_dist(i, which = RMS_CHOICE.FIRST_VORTEX ) )
+            
+            # Compute the temporal autocorelation
+            self.autocorrelation.append( self.get_autocorr(i) )
             
             # Compute energy
             self.energies.append( self.get_energy(i) )
@@ -159,6 +183,7 @@ class Analysis:
             'energies2': self.energies2,
             'dipoleMoment': self.dipole_moments,
             'rmsCluster': self.rmsCluster,
+            'rmsNonDipoleNonCentered': self.rmsNonDipoleNonCentered,
             'rmsFirstVortex': self.rmsFirstVortex,
             'pair_corr': self.pair_corr,
             'pair_corr_w': self.pair_corr_w,
@@ -197,6 +222,18 @@ class Analysis:
         
         return np.abs(D)/len(D)
     
+    
+    """
+    This routine locates clusters _only_. It assumes dipoles have been found first.
+    The typical rule for clustering is this:
+        
+        If two same-signed vortices are closer than either is to an opposite signed vortex,
+        they belong to the same cluster.
+        
+    It is very important that they belong _to the same cluster_. In particular, denoting clustering by ~, 
+    we may have a ~ b and b ~ c. Without explicitly putting them in the same cluster, a !~ c.
+    
+    """
     def find_clusters(self, cfg):
         pos = cfg['positions']
         circs = cfg['circulations']
@@ -244,8 +281,9 @@ class Analysis:
             cluster_ids.extend(cluster)
             if len(cluster):
                 clusters.append(cluster)
-
-        return clusters
+        
+        # Merge clusters with at least one vortex in common
+        return merge_common(clusters)
 
     """
         Rule: if two vortices are mutually nearest neighbours, we classify them as a dipole
@@ -312,6 +350,11 @@ class Analysis:
             A = A + v.circ*np.dot(pos, pos)
             
         return A
+    
+    def get_autocorr(self, i):
+        return np.sum(
+            [v1.get_pos(i)*v1.get_pos(0) for v1 in self.vortices if v1.is_alive(i)]
+            )
     
     """
     
@@ -461,12 +504,13 @@ class Analysis:
     
     """
     
-    def get_rms_dist(self, tid, which = RMS_CHOICE.CLUSTER):
+    def get_rms_dist(self, tid, which = RMS_CHOICE.CLUSTER, rel = RMS_CHOICE.REL_ORIGIN):
         # We assume a cluster analysis has been performed. For now, assert out if not
         assert tid < len(self.dipoles) and tid < len(self.clusters)
         
         # Put together the ids which we compute rms on
         ids = np.array([])
+        all_ids = [v.id for v in self.vortices]
         
         if which == RMS_CHOICE.CLUSTER:
             ids = np.array(self.clusters[tid])
@@ -474,7 +518,9 @@ class Analysis:
             ids = np.array(self.dipoles[tid])
         elif which == RMS_CHOICE.FIRST_VORTEX:
             ids = np.array([[0]])
-        # TODO implement the rest
+        elif which == RMS_CHOICE.ALL_BUT_DIPOLE:
+            dipoles = self.dipoles[tid]
+            ids = [[id_ not in dipoles for id_ in all_ids]]
         
         if not len(ids):
             return 0
@@ -495,8 +541,11 @@ class Analysis:
         # Calculate the RMS for them
         # Note: there is no point doing this in a loop
         # |traj-initial_pos|^2 = rms
-        srms = [np.linalg.norm(v1.get_pos(tid))**2 for v1 in v]
         
+        if rel == RMS_CHOICE.REL_ORIGIN:
+            srms = [np.linalg.norm(v1.get_pos(tid))**2 for v1 in v]
+        elif rel == RMS_CHOICE.REL_INITIAL_POS:
+            srms = [np.linalg.norm(v1.get_pos(tid) - v1.get_pos(0))**2 for v1 in v]
         return srms
     
     """ 

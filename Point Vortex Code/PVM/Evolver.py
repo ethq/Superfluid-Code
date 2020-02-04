@@ -94,7 +94,7 @@ class Evolver:
                  dt = 0.01,
                  tol = 1e-8,
                  max_iter = 15,
-                 annihilation_threshold = 1e-2,
+                 annihilation_threshold = 1e-3,
                  verbose = True,
                  domain_radius = 3,
                  gamma = 0.01,
@@ -103,35 +103,30 @@ class Evolver:
                  spawn_rate = 0,
                  stirrer_rad = 1,
                  stirrer_vel = .3,
-                 annihilate_on_boundary = True,
+                 annihilate_at_radius = -1,
                  warm_file = None,
                  temperature = .001,
-                 mc_skip = 1,
-                 mc_burn = 100,
-                 mc_steps = 100,
-                 mc_vorticity_tolerance = 1e-3,
-                 mc_bounding_move_ratio = 10,
                  rk_degree = 4
                  ):
         if warm_file:
             self.warm_start(warm_file)
             return
         
-        self.annihilate_on_boundary = annihilate_on_boundary
+        self.annihilate_at_radius = annihilate_at_radius
         self.initial_radius = initial_radius
         self.domain_radius = domain_radius
         self.n_vortices = n_vortices
         self.max_n_vortices = n_vortices
         self.T = T
 
-        self.mc_settings = {
-                'temperature': temperature,
-                'skip': int(mc_skip),
-                'burn': int(mc_burn),
-                'steps': int(mc_steps),
-                'vorticity_tol': mc_vorticity_tolerance,
-                'bbox': domain_radius/mc_bounding_move_ratio
-                }
+        # self.mc_settings = {
+        #         'temperature': temperature,
+        #         'skip': int(mc_skip),
+        #         'burn': int(mc_burn),
+        #         'steps': int(mc_steps),
+        #         'vorticity_tol': mc_vorticity_tolerance,
+        #         'bbox': domain_radius/mc_bounding_move_ratio
+        #         }
         
         self.dt = dt
         self.tol = tol
@@ -314,7 +309,6 @@ class Evolver:
         rr1 = np.triu(rr1, 1)
         rr1[rr1 == 0] = lockout
 
-
         # Get vortex indices to delete
         an_ind = np.where(rr1 < self.annihilation_threshold)
         # Combine element-wise. np.where returns in this case a 2d array with (row, col) indices, corresp vortex locations
@@ -355,7 +349,7 @@ class Evolver:
         # Note we have doubled the threshold here - otherwise they just start orbit
         rad_pos = np.array(cart2pol(pos))[:, 0]
         for ri, r in enumerate(rad_pos):
-            if np.abs(self.domain_radius - r) < self.annihilation_threshold:
+            if r > self.annihilate_at_radius:
                 an_ind = np.append(an_ind, ri)
         
 
@@ -541,135 +535,135 @@ class Evolver:
     
     """
     
-    def metropolis(self, trajectory = True):  
-        # Trick metadata a little bit
-        self.dt = 1
-        self.T = self.mc_settings['burn'] + self.mc_settings['steps']
+    # def metropolis(self, trajectory = True):  
+    #     # Trick metadata a little bit
+    #     self.dt = 1
+    #     self.T = self.mc_settings['burn'] + self.mc_settings['steps']
         
-        # Must be used with care, since there are no trajectories available etc.
-        analysis = Analysis(None, self.get_trajectory_data())
+    #     # Must be used with care, since there are no trajectories available etc.
+    #     analysis = Analysis(None, self.get_trajectory_data())
         
-        # Get stacked energy
-        h_stacked = analysis.get_energy(0, True)
+    #     # Get stacked energy
+    #     h_stacked = analysis.get_energy(0, True)
         
-        # Equilibrate the system
-        if self.verbose:
-            tqdm.write('Relaxing to equilibrium.')
+    #     # Equilibrate the system
+    #     if self.verbose:
+    #         tqdm.write('Relaxing to equilibrium.')
         
-        acc = 0
-        for i in tqdm(np.arange(self.mc_settings['burn'] - 1)):
-            acc = acc + self.sweep(i, h_stacked, analysis) # not as bad as it looks, since obj-ref pass by value
+    #     acc = 0
+    #     for i in tqdm(np.arange(self.mc_settings['burn'] - 1)):
+    #         acc = acc + self.sweep(i, h_stacked, analysis) # not as bad as it looks, since obj-ref pass by value
         
-        if self.verbose:
-            tqdm.write(f'Relaxation complete. Successful moves per vortex: {acc/self.n_vortices}.')
+    #     if self.verbose:
+    #         tqdm.write(f'Relaxation complete. Successful moves per vortex: {acc/self.n_vortices}.')
         
-        # Begin sweeping for statistics. Skip used for statistical independence/relaxation
-        skip = self.mc_settings['skip']
+    #     # Begin sweeping for statistics. Skip used for statistical independence/relaxation
+    #     skip = self.mc_settings['skip']
         
-        if self.verbose:
-            tqdm.write('Sweeping for statistics')
+    #     if self.verbose:
+    #         tqdm.write('Sweeping for statistics')
             
-        acc = 0
-        for j in tqdm(np.arange(skip*self.mc_settings['steps']) + (i+1)):
-            # Do a sweep
-            acc = acc + self.sweep(j, h_stacked, analysis)
+    #     acc = 0
+    #     for j in tqdm(np.arange(skip*self.mc_settings['steps']) + (i+1)):
+    #         # Do a sweep
+    #         acc = acc + self.sweep(j, h_stacked, analysis)
             
-            # Save state every skip'th frame for analysis. Seems a little pointless feature as of now;
-            # If trajectory lengths become too large to fit in memory then we need skip+inplace.
-            if j % skip:
-                pass
-        if self.verbose:
-            tqdm.write(f'Sweeping complete. Successful moves per vortex: {acc/self.n_vortices}.')
-    """
+    #         # Save state every skip'th frame for analysis. Seems a little pointless feature as of now;
+    #         # If trajectory lengths become too large to fit in memory then we need skip+inplace.
+    #         if j % skip:
+    #             pass
+    #     if self.verbose:
+    #         tqdm.write(f'Sweeping complete. Successful moves per vortex: {acc/self.n_vortices}.')
+    # """
     
-    Performs one full sweep of the metropolis algorithm, i.e. attempts to move each vortex once
+    # Performs one full sweep of the metropolis algorithm, i.e. attempts to move each vortex once
     
-    We use two modifications: if vortex hits bdry, then we move it using specular reflection
-    If this still fails to contain the vortex(as it might if it is moving parallelly close to bdry)
-    then we do not move it.
+    # We use two modifications: if vortex hits bdry, then we move it using specular reflection
+    # If this still fails to contain the vortex(as it might if it is moving parallelly close to bdry)
+    # then we do not move it.
     
-    # Actually, we check for conservation of the second moment of vorticity. Not the enstrophy... hm.
-    Secondly, the enstrophy Es is conserved. Thus we add an additional acceptance check |Es'-Es| < tol
+    # # Actually, we check for conservation of the second moment of vorticity. Not the enstrophy... hm.
+    # Secondly, the enstrophy Es is conserved. Thus we add an additional acceptance check |Es'-Es| < tol
     
-    """
-    def sweep(self, frame, h_stacked, analysis):
-        beta = 1 / self.mc_settings['temperature']
-        vort_tol = self.mc_settings['vorticity_tol']
+    # """
+    # def sweep(self, frame, h_stacked, analysis):
+    #     beta = 1 / self.mc_settings['temperature']
+    #     vort_tol = self.mc_settings['vorticity_tol']
         
-        # Stepping in order has a tendency to yield bad statistics. Not sure why...?
-        v_tar = list(range(len(self.vortices)))
-        np.random.shuffle(v_tar)
+    #     # Stepping in order has a tendency to yield bad statistics. Not sure why...?
+    #     v_tar = list(range(len(self.vortices)))
+    #     np.random.shuffle(v_tar)
         
-        # Copy all positions to current frame. 
-        [v.set_pos(v.get_pos(frame)) for v in self.vortices]
+    #     # Copy all positions to current frame. 
+    #     [v.set_pos(v.get_pos(frame)) for v in self.vortices]
         
-        # Acceptance counter: how many of our attempted moves were accepted?
-        acc_ctr = 0
+    #     # Acceptance counter: how many of our attempted moves were accepted?
+    #     acc_ctr = 0
         
-        # Attempt to move each vortex in-place at the current frame. 
-        for i in v_tar:
-            # Grab target vortex
-            v = self.vortices[i]
+    #     # Attempt to move each vortex in-place at the current frame. 
+    #     for i in v_tar:
+    #         # Grab target vortex
+    #         v = self.vortices[i]
             
-            # Energy of vortex prior to moving it
-            energy_old = h_stacked[v.id]
+    #         # Energy of vortex prior to moving it
+    #         energy_old = h_stacked[v.id]
             
-            # Attempt to move vortex
+    #         # Attempt to move vortex
             
-            # Generate displacements from uniform distribution, center on zero and scale to boundingbox
-            dr = self.mc_settings['bbox']*(np.random.rand(2) - 1/2)
+    #         # Generate displacements from uniform distribution, center on zero and scale to boundingbox
+    #         dr = self.mc_settings['bbox']*(np.random.rand(2) - 1/2)
             
-            # Reflect if necessary
-            if np.linalg.norm(v.get_pos(frame) + dr) > self.domain_radius:
-                new_pos = reflect(v.get_pos(frame), v.get_pos(frame) + dr, self.domain_radius)
-            # Else just add displacement
-            else:
-                new_pos = v.get_pos(frame) + dr
+    #         # Reflect if necessary
+    #         if np.linalg.norm(v.get_pos(frame) + dr) > self.domain_radius:
+    #             new_pos = reflect(v.get_pos(frame), v.get_pos(frame) + dr, self.domain_radius)
+    #         # Else just add displacement
+    #         else:
+    #             new_pos = v.get_pos(frame) + dr
             
-            # Check for move legality. In particular we do not accept if we are within another vortex core
-            legal = True
-            for v2 in self.vortices:
-                if v2.id == v.id:
-                    continue
+    #         # Check for move legality. In particular we do not accept if we are within another vortex core
+    #         legal = True
+    #         for v2 in self.vortices:
+    #             if v2.id == v.id:
+    #                 continue
                 
-                if np.linalg.norm(new_pos - v2.get_pos(frame)) < self.annihilation_threshold:
-                    legal = False
-            if not legal:
-                continue
+    #             if np.linalg.norm(new_pos - v2.get_pos(frame)) < self.annihilation_threshold:
+    #                 legal = False
+    #         if not legal:
+    #             continue
             
-            # Move good so far, attempt to go through with it
-            # We pop the old and reset to remain at the same frame as the other vortices
-            # (since set_pos() appends to the trajectory)
-            old_pos = v.pop_pos()
-            v.set_pos(new_pos)
+    #         # Move good so far, attempt to go through with it
+    #         # We pop the old and reset to remain at the same frame as the other vortices
+    #         # (since set_pos() appends to the trajectory)
+    #         old_pos = v.pop_pos()
+    #         v.set_pos(new_pos)
             
-            # Energy of vortex after moving it
-            energy_new = analysis.get_energy(frame, False, v.id)
+    #         # Energy of vortex after moving it
+    #         energy_new = analysis.get_energy(frame, False, v.id)
             
-            # Energy change
-            delta_E = energy_new - energy_old
+    #         # Energy change
+    #         delta_E = energy_new - energy_old
             
-            # Rejection sampling. 
-            accept = True
+    #         # Rejection sampling. 
+    #         accept = True
             
-            # First check the energy change. Note that if delta_E <= 0, exp >= 1 and we always accept
-            if np.random.uniform(0, 1) > np.exp(-beta * delta_E):
-                accept = False
+    #         # First check the energy change. Note that if delta_E <= 0, exp >= 1 and we always accept
+    #         if np.random.uniform(0, 1) > np.exp(-beta * delta_E):
+    #             accept = False
             
-            # Then check the second moment of vorticity(ie. angular momentum). Should be conserved!
-            if np.abs(np.dot(v.get_pos(0), v.get_pos(0)) - np.dot(new_pos, new_pos)) > vort_tol:
-                accept = False
+    #         # Then check the second moment of vorticity(ie. angular momentum). Should be conserved!
+    #         if np.abs(np.dot(v.get_pos(0), v.get_pos(0)) - np.dot(new_pos, new_pos)) > vort_tol:
+    #             accept = False
             
-            # Update energy if all good. Otherwise restore old state
-            if accept:
-                h_stacked[v.id] = energy_new
-                acc_ctr = acc_ctr + 1
-            # Reject. Restore old position
-            else:
-                v.pop_pos()
-                v.set_pos(old_pos)
+    #         # Update energy if all good. Otherwise restore old state
+    #         if accept:
+    #             h_stacked[v.id] = energy_new
+    #             acc_ctr = acc_ctr + 1
+    #         # Reject. Restore old position
+    #         else:
+    #             v.pop_pos()
+    #             v.set_pos(old_pos)
                 
-        return acc_ctr/len(self.vortices)
+    #     return acc_ctr/len(self.vortices)
         
     """
     Shortcut function for live logging. Could extend w/ write to file & other options for verbose
@@ -698,6 +692,7 @@ class Evolver:
                 'n_steps': int(self.T/self.dt),
                 'domain_radius': self.domain_radius,
                 'annihilation_threshold': self.annihilation_threshold,
+                'annihilate_at_radius': self.annihilate_at_radius,
                 'tol': self.tol,
                 'seed': self.seed,
                 'max_n_vortices': self.max_n_vortices,
@@ -727,7 +722,7 @@ class Evolver:
                                                       self.seed,
                                                       'Evolution')
             
-        path = pathlib.Path(fname)
+        # path = pathlib.Path(fname)
 #        FOR NOW JUST OVERWRITE
 #        if path.exists() and path.is_file():
 #            resave = input("The file has already been evolved. Do you wish to overwrite? [y/n]")

@@ -45,6 +45,29 @@ def cart2pol(x, y = None):
     else:
         return cart2pol_scalar(x,y)
 
+# Takes a list of lists. Merges all lists that have at least one element in common
+def merge_common(l):
+    out = []
+    while len(l)>0:
+        first, *rest = l
+        first = set(first)
+    
+        lf = -1
+        while len(first)>lf:
+            lf = len(first)
+    
+            rest2 = []
+            for r in rest:
+                if len(first.intersection(set(r)))>0:
+                    first |= set(r)
+                else:
+                    rest2.append(r)     
+            rest = rest2
+    
+        out.append(first)
+        l = rest
+    
+    return [list(o) for o in out]
 
 """
 Appends to list but keeps length fixed by removing elements from start.

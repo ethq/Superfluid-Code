@@ -81,11 +81,13 @@ class Animator:
         self.axes = {}
         
 #        # vortices spinning cw(ccw) are coloured black(red)
-        red = (*hex2one('#383535'), 0.7)
-        black = (*hex2one('#bd2b2b'), 0.7)
-        self.vortex_colours = {-1: black, 1: red} # Indexed by ciculation
-        self.dipole_colour = '#c0e39d'
-        self.cluster_colour = '#57769c'
+        # red = (*hex2one('#383535'), 0.7)
+        # black = (*hex2one('#bd2b2b'), 0.7)
+        # self.vortex_colours = {-1: black, 1: red} # Indexed by ciculation
+        # self.dipole_colour = '#c0e39d'
+        # self.cluster_colour = '#57769c'
+        
+        [setattr(self, k, v) for k,v in Conventions.colour_scheme().items()]
         
         # Length of vortex trails in animation
         self.trail_length = 40

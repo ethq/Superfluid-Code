@@ -10,12 +10,30 @@ Created on Mon Nov 18 13:21:34 2019
 Class to enforce some conventions across files
 """
 
+from .Utilities import hex2one
+
 class Conventions:
     def __init__(self):
         pass
     
     """
+    Colour scheme.
     
+
+    WARNING!!!! Animator.py uses setattr while looping over the scheme to set class variables.
+    
+    Hence it may be a litle dangerous to modify this fellow...
+
+    """
+    def colour_scheme():
+        return {
+            'vortex_colours': {-1: (*hex2one('#bd2b2b'), 0.7), 1: (*hex2one('#383535'), 0.7)},
+            'dipole_colour': '#c0e39d',
+            'cluster_colour': '#57769c'
+            }
+    
+    
+    """
     Consistent way of naming data files from evolution/analysis using metadata
     
     max_vortices: [integer] metadata

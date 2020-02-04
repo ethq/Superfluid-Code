@@ -10,8 +10,8 @@ import ctypes
 
 # Assumes the seeds have been evolved and analyzed
 
-fnames = ['N10_T50_S87655771',
-          'N10_T50_S996866482'
+fnames = [
+          'N30_T500_S144692810'
           ]
 
 for fname in fnames:

@@ -9,19 +9,20 @@ import ctypes
 import PVM as pvm
 
 # First set up initial conditions
-n_vortices = 10
-domain_radius = 20
+n_vortices = 50
+domain_radius = 200
+annihilate_at_radius = 185
 
 params = {
         'center': [1e-4, 1e-4],
-        'sigma': 5
+        'sigma': 10
         }
 
 cfg = pvm.Configuration(
         n_vortices,
         domain_radius,
         pvm.CONFIG_STRAT.SINGLE_CLUSTER,
-        pvm.CONFIG_STRAT.CIRCS_ALL_BUT_ONE_POSITIVE,
+        pvm.CONFIG_STRAT.CIRCS_EVEN,
         None,
         params,
         {
@@ -33,6 +34,7 @@ T = 500
 ev_config = {
     'n_vortices': n_vortices,
     'domain_radius': domain_radius,
+    'annihilate_at_radius': annihilate_at_radius,
     'gamma': 0,
     'T': T,
     'spawn_rate': 0,
@@ -57,8 +59,8 @@ fname = f'N{n_vortices}_T{T}_S{evolver.seed}'
 
 plotter = pvm.HarryPlotter(fname)
 
-pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.energyImageReal, pvm.PlotChoice.energy]
+pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.rmsClusterNonCentered, pvm.PlotChoice.energy]
 
 plotter.plot(pc)
 
-#ctypes.windll.user32.FlashWindow(ctypes.windll.kernel32.GetConsoleWindow(), True)
+ctypes.windll.user32.FlashWindow(ctypes.windll.kernel32.GetConsoleWindow(), True)

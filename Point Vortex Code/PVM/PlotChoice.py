@@ -21,6 +21,7 @@ TODO: Much better to hardcode to integers, then use a map if a str rep is needed
 import numpy as np
 
 
+# IF ADDING A PLOT CHOICE, REMEMBER TO ALSO ADD TO VALIDATION LIST BELOW
 class PlotChoice:
     # Only use these(in combination if desired)
     vortices = 'vortices'
@@ -29,6 +30,7 @@ class PlotChoice:
     energyPerVortex = 'energyPerVortex'
     dipoleMoment = 'dipoleMoment'
     rmsCluster = 'rmsCluster'
+    rmsNonDipoleNonCentered = 'rmsNonDipoleNonCentered'
     rmsFirstVortex = 'rmsFirstVortex'
     
     energyImageReal = 'energyImageReal'
@@ -63,7 +65,7 @@ class PlotChoice:
     
         return choice
     
-    
+    # Replace with getattr() stuff?
     def get_possible_values():
         return [
             PlotChoice.vortices,
@@ -72,6 +74,7 @@ class PlotChoice:
             PlotChoice.numberOfVortices,
             PlotChoice.energyPerVortex,
             PlotChoice.rmsCluster,
+            PlotChoice.rmsNonDipoleNonCentered,
             PlotChoice.rmsFirstVortex,
             PlotChoice.energyImageReal,
             PlotChoice.smallestDistance
