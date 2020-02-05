@@ -117,8 +117,8 @@ class HarryPlotter:
                         'ylabel': 'Count',
                         'labels': ['Total', 'Dipoles', 'Clusters', 'Free'],
                         'lines': 4,
-                        'data': [analysis_data['n_total'], analysis_data['n_dipole'], analysis_data['n_cluster'], 
-                                 analysis_data['n_total'] - analysis_data['n_dipole'] - analysis_data['n_cluster']]
+                        'data': [np.array(analysis_data['n_total']), np.array(analysis_data['n_dipole']), np.array(analysis_data['n_cluster']), 
+                                 np.array(analysis_data['n_total']) - np.array(analysis_data['n_dipole']) - np.array(analysis_data['n_cluster'])]
                     },
                 PlotChoice.rmsCluster:
                     {
@@ -136,7 +136,7 @@ class HarryPlotter:
                          'ylabel': 'RMS distance',
                          'labels': ['RMS distance'],
                          'lines': 1,
-                         # 'data': [[np.sqrt(np.sum(d)) for d in analysis_data['rmsNonDipoleNonCentered']]]
+                          'data': [[np.sqrt(np.sum(d)) for d in analysis_data['rmsNonDipoleNonCentered']]]
                     },
                 PlotChoice.rmsFirstVortex:
                     {

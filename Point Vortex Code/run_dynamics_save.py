@@ -55,12 +55,12 @@ analysis.save()
 #animator = pvm.Animator(None, traj_data, analysis_data)
 #animator.save_animation(pc)
 
-fname = f'N{n_vortices}_T{T}_S{evolver.seed}'
+# fname = f'N{n_vortices}_T{T}_S{evolver.seed}'
 
-plotter = pvm.HarryPlotter(fname)
+# plotter = pvm.HarryPlotter(fname)
 
-pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.rmsClusterNonCentered, pvm.PlotChoice.energy]
+# pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.rmsClusterNonCentered, pvm.PlotChoice.energy]
 
-plotter.plot(pc)
+# plotter.plot(pc)
 
-ctypes.windll.user32.FlashWindow(ctypes.windll.kernel32.GetConsoleWindow(), True)
+# ctypes.windll.user32.FlashWindow(ctypes.windll.kernel32.GetConsoleWindow(), True)

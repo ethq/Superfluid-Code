@@ -57,6 +57,26 @@ class RMS_CHOICE:
     
     REL_INITIAL_POS = 998,
     REL_ORIGIN = 999
+    
+    
+class ANALYSIS_CHOICE:
+    FULL = 'full',
+    
+    RMS_NON_DIPOLE_CENTERED = 'rmsNonDipoleCentered',
+    RMS_NON_DIPOLE_IP = 'rmsNonDipoleNonCentered',
+    RMS_CLUSTER_CENTERED = 'rmsCluster',
+    RMS_CLUSTER_IP = 'rmsClusterNonCentered',
+    RMS_FIRST_VORTEX = 'rmsFirstVortex',
+    
+    DIPOLE_MOMENT = 'dipoleMoment',
+    ENERGIES = 'energies',
+    ENERGIES_IM_REAL = 'energies2',
+    
+    PAIR_CORR_SPACE = 'pair_corr',
+    PAIR_CORR_SPACE_W = 'pair_corr_w',
+    PAIR_CORR_TEMPORAL = 'auto_corr',
+    
+    CLUSTER_ANALYSIS = 'cluster_analysis',
 
 class Analysis:
     
@@ -75,7 +95,7 @@ class Analysis:
             data = traj_data
         
         self.fname = fname
-        
+            
         self.options = options
         self.settings = data['settings']
         self.vortices = data['vortices']
@@ -86,11 +106,12 @@ class Analysis:
         self.clusters = []
         self.energies = []
         self.energies2 = []
-        self.dipole_moments = []
+        self.dipoleMoment = []
         self.pair_corr_w = []
         self.pair_corr = []
         self.rmsCluster = []
         self.rmsNonDipole = []
+        self.rmsClusterNonCentered = []
         self.rmsNonDipoleNonCentered = []
         self.rmsFirstVortex = []
         self.smallestDistance = []
@@ -100,6 +121,16 @@ class Analysis:
         self.n_total = []
         self.n_dipole = []
         self.n_cluster = []
+    
+    
+    # Calculates the properties given by props.
+    def run(self, props = []):
+        if not props:
+            return
+        
+        st = time.time()
+        print('starting partial analysis')
+        
     
     # Run a complete cluster analysis for all time frames
     # find_dipoles must be run prior to find_clusters; two parts of the algorithm
@@ -135,32 +166,36 @@ class Analysis:
             # Compute RMS distance for non-dipoles, the Barenghi way
             self.rmsNonDipoleNonCentered.append( self.get_rms_dist(i, which = RMS_CHOICE.ALL_BUT_DIPOLE, rel = RMS_CHOICE.REL_INITIAL_POS))
             
+            # Compute RMS distance of clusters, the Barenghi way
+            self.rmsClusterNonCentered.append( self.get_rms_dist(i, which = RMS_CHOICE.CLUSTER, rel = RMS_CHOICE.REL_INITIAL_POS) )
+            
             # Compute RMS distance
             self.rmsCluster.append( self.get_rms_dist(i, which = RMS_CHOICE.CLUSTER) )
             
             # Compute RMS distance of vortex id = 0
-            self.rmsFirstVortex.append( self.get_rms_dist(i, which = RMS_CHOICE.FIRST_VORTEX ) )
+            # self.rmsFirstVortex.append( self.get_rms_dist(i, which = RMS_CHOICE.FIRST_VORTEX ) )
             
             # Compute the temporal autocorelation
             self.autocorrelation.append( self.get_autocorr(i) )
             
             # Compute energy
-            self.energies.append( self.get_energy(i) )
+            # self.energies.append( self.get_energy(i) )
             
             # For debug purposes, compute energy from images and real vortices separately
-            self.energies2.append( self.get_energy(i, debug = True))
+            # self.energies2.append( self.get_energy(i, debug = True))
             
             # Compute dipole moment
-            self.dipole_moments.append( self.get_dipole_moment(i) )
+            # self.dipoleMoment.append( self.get_dipole_moment(i) )
             
             # Compute weighted pair correlation
-            self.pair_corr_w.append( self.get_pair_corr3(cfg, weighted = True) )
+            # self.pair_corr_w.append( self.get_pair_corr3(cfg, weighted = True) )
             
             # Compute non-weighted pair correlation
-            self.pair_corr.append( self.get_pair_corr3(cfg) )
+            # self.pair_corr.append( self.get_pair_corr3(cfg) )
             
+        # All should be turned into numpy arrays
         self.energies = np.array(self.energies)
-        self.dipole_moments = np.array(self.dipole_moments)
+        self.dipoleMoment = np.array(self.dipoleMoment)
         
         tt = time.time() - st
         mins = tt // 60
@@ -169,27 +204,81 @@ class Analysis:
         
         return self.get_data()
     
-    
+
     # Returns the data of a full analysis.
     # TOOD: add flags that restrict analysis to certain properties to speed things up
     def get_data(self):
         return {
             'dipoles': self.dipoles,
             'clusters': self.clusters,
-            'n_total': np.array(self.n_total),
-            'n_dipole': np.array(self.n_dipole),
-            'n_cluster': np.array(self.n_cluster),
+            'n_total': self.n_total,
+            'n_dipole': self.n_dipole,
+            'n_cluster': self.n_cluster,
             'energies': self.energies,
             'energies2': self.energies2,
-            'dipoleMoment': self.dipole_moments,
+            'dipoleMoment': self.dipoleMoment,
             'rmsCluster': self.rmsCluster,
+            'rmsNonDipole': self.rmsNonDipole,
+            'rmsClusterNonCentered': self.rmsClusterNonCentered,
             'rmsNonDipoleNonCentered': self.rmsNonDipoleNonCentered,
             'rmsFirstVortex': self.rmsFirstVortex,
             'pair_corr': self.pair_corr,
             'pair_corr_w': self.pair_corr_w,
+            'auto_corr': self.autocorrelation,
             'smallestDistance': self.smallestDistance
                 }
+    
+    
+    # Completes a given file to a full analysis. 
+    # Note: only fills in _empty_ attributes, if some attribute has been calculated using old code it remains
+    
+    # Note2: if props is non-empty, only extends with attributes contained therein
+    def extend(self, f, props = []):
+        fname_analysis = 'Datafiles/Analysis_' + f + '.dat'    
+        fname_evolution = 'Datafiles/Evolution_' + f + '.dat'
         
+        ef = open(fname_evolution, "rb")
+        af = open(fname_analysis, "rb")
+                
+        evolution_data = pickle.load(ef)
+        analysis_data = pickle.load(af)
+        
+        self.fname = f
+        self.settings = evolution_data['settings']
+        self.vortices = evolution_data['vortices']
+        self.trajectories = evolution_data['trajectories']
+        self.circulations = evolution_data['circulations']
+
+        # Get the properties that are exposed to users of this class, or those who load its saved files        
+        sd = self.get_data().keys()
+        
+        # Set only these properties from analysis_data
+        [setattr(self, k, v) for k,v in analysis_data if k in sd]
+
+        # Remember remember the fifth of november
+        af.close()
+        ef.close()
+        
+        to_analyze = []
+        # Loop over own properties
+        for attr in sd:
+            # If it's set, move on
+            if getattr(self, attr) or (not props and attr not in props):
+                continue
+            
+            # Otherwise, analyze and set it
+            if attr in ['dipoles', 'clusters', 'n_total', 'n_dipole', 'n_cluster']:
+                to_analyze.append(ANALYSIS_CHOICE.CLUSTER_ANALYSIS)
+                
+            elif attr in dir(ANALYSIS_CHOICE):
+                to_analyze.append( attr )
+                
+            else:
+                print(f"Not analyzing: {attr}")
+                
+        self.run(to_analyze)
+            
+    ### remove ### --- used for debug purposes
     def get_smallest_distance(self, i):
         mindist = np.Inf
         for v1 in self.vortices:
