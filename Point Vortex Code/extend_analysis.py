@@ -22,7 +22,9 @@ fnames = ['N50_T500_S' + str(s) for s in seeds]
 for f in fnames:
     a = pvm.Analysis()
     
-    achoice = [pvm.ANALYSIS_CHOICE.PAIR_CORR_TEMPORAL_CLUSTER, 
-               pvm.ANALYSIS_CHOICE.PAIR_CORR_TEMPORAL_NONDIPOLE
+    achoice = [pvm.ANALYSIS_CHOICE.AUTO_CORR_CLUSTER, 
+               pvm.ANALYSIS_CHOICE.AUTO_CORR_NON_DIPOLE
                ]
     a.extend(f, achoice)
+    
+    break

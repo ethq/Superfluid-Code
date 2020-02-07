@@ -72,7 +72,7 @@ for f in tqdm(fnames):
     #     - np.array([[np.sum(d) for d in analysis_data[statistics[0]]]]).flatten()/t
     #     )
     
-    vals.append( np.array([[np.sum(d) for d in analysis_data[statistic]]]).flatten() )
+    vals.append( np.array([[np.mean(d) for d in analysis_data[statistic]]]).flatten() )
     
     # For autocorrelation, sum has already been done. Could perhaps wait, so we have single-particle autocorrelations?
     # vals.append( analysis_data[statistic] - analysis_data[statistic][0])
@@ -93,7 +93,7 @@ for f in tqdm(fnames):
 cfid = st.t.interval(0.95, len(vals)-1, loc=np.mean(vals, axis = 0), scale=st.sem(vals, axis = 0))
 
 # Plot it
-plt.fill_between(t, cfid[0], cfid[1])
+plt.fill_between(t, cfid[0], cfid[1], zorder = 1e3)
 
 
 # Get the average

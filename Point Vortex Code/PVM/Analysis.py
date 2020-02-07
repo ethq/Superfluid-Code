@@ -53,30 +53,30 @@ class RMS_CHOICE:
     FREE = 3
     ALL = 4
     FIRST_VORTEX = 5
-    ALL_BUT_DIPOLE = 6
+    NON_DIPOLE = 6
     
     REL_INITIAL_POS = 998
     REL_ORIGIN = 999
     
-    
+### Note when adding: make _SURE_ the values match up to the ones given in get_data()  
 class ANALYSIS_CHOICE:
     FULL = 'full',
     
     RMS_NON_DIPOLE_CENTERED = 'rmsNonDipoleCentered'
-    RMS_NON_DIPOLE_IP = 'rmsNonDipoleNonCentered'
+    RMS_NON_DIPOLE_NON_CENTERED = 'rmsNonDipoleNonCentered'
     RMS_CLUSTER_CENTERED = 'rmsCluster'
-    RMS_CLUSTER_IP = 'rmsClusterNonCentered'
+    RMS_CLUSTER_NON_CENTERED = 'rmsClusterNonCentered'
     RMS_FIRST_VORTEX = 'rmsFirstVortex'
 
-    DIPOLE_MOMENT = 'dipoleMoment'
+    DIPOLE_MOMENT = 'dipole_moment'
     ENERGIES = 'energies'
-    ENERGIES_IM_REAL = 'energies2'
     
-    PAIR_CORR_SPACE = 'pair_corr'
-    PAIR_CORR_SPACE_W = 'pair_corr_w'
-    PAIR_CORR_TEMPORAL = 'auto_corr'
-    PAIR_CORR_TEMPORAL_CLUSTER = 'auto_corr_cluster'
-    PAIR_CORR_TEMPORAL_NONDIPOLE = 'auto_corr_nondipole'
+    PAIR_CORR = 'pair_corr'
+    PAIR_CORR_W = 'pair_corr_w'
+    AUTO_CORR = 'auto_corr'
+    AUTO_CORR_CLUSTER = 'auto_corr_cluster'
+    AUTO_CORR_NON_DIPOLE = 'auto_corr_nondipole'
+    AUTO_CORR_DIPOLE = 'auto_corr_dipole'
     
     CLUSTER_ANALYSIS = 'cluster_analysis'
 
@@ -116,7 +116,7 @@ class Analysis:
         self.clusters = []
         self.energies = []
         self.energies2 = []
-        self.dipoleMoment = []
+        self.dipole_moment = []
         self.pair_corr_w = []
         self.pair_corr = []
         self.rmsCluster = []
@@ -126,24 +126,70 @@ class Analysis:
         self.rmsFirstVortex = []
         self.smallestDistance = []
         
-        self.autocorrelation = []
+        self.auto_corr = []
         self.auto_corr_cluster = []
         self.auto_corr_nondipole = []
+        self.auto_corr_dipole = []
         
         self.n_total = []
         self.n_dipole = []
         self.n_cluster = []
     
     
-    # Calculates the properties given by props.
+    # Calculates the properties given by props. debug props must be given manually
+    # props is expected to be a list of values enumerated by ANALYSIS_CHOICE
     def run(self, props = []):
         if not props:
             return
         
-        st = time.time()
-        print('starting partial analysis')
+        cluster = False
+        # Are we doing cluster analysis?
+        if ANALYSIS_CHOICE.FULL in props:
+            cluster = True
+            props.remove(ANALYSIS_CHOICE.FULL)
+        if ANALYSIS_CHOICE.CLUSTER_ANALYSIS in props:
+            cluster = True
+            props.remove(ANALYSIS_CHOICE.CLUSTER_ANALYSIS)
         
-        # Now we need a map from properties -> functions that calculate them. Good lord
+        st = time.time()
+        print('starting analysis')
+
+        for t in tqdm(np.arange(self.settings['n_steps'])):
+            if t % self.options['frameskip']:
+                continue
+            
+            cfg = get_active_vortex_cfg(self.vortices, t)
+            
+            # Do complete cluster analysis if desired
+            if cluster:
+                # Detect dipoles and clusters
+                self.dipoles.append( self.find_dipoles(cfg) )
+                self.clusters.append( self.find_clusters(cfg) )
+                
+                # Vortex number statistics
+                self.n_total.append( len(cfg['ids']) ) 
+                self.n_dipole.append( len(self.dipoles[-1]) ) 
+                self.n_cluster.append( len(np.unique(self.clusters[-1])) )
+            
+            
+            # Loop over properties to analyze
+            for p in props:
+                # Get the function that does the udpating
+                f = 'get_' + p
+                
+                # Make sure we aint doin stupid stuff
+                assert hasattr(self, f)
+                assert hasattr(self, p)
+                
+                # Call it
+                val = getattr(self, f)(t, cfg)
+                
+                # Add it
+                getattr(self, p).append(val)
+        
+        for p in props:
+            v = getattr(self, p)
+            setattr(self, p, np.array(v))
         
     
     # Run a complete cluster analysis for all time frames
@@ -151,87 +197,152 @@ class Analysis:
     # TOOD add analysis options, we may certainly not want to compute -everything-, 
     # Or on every frame...
     def full_analysis(self):
-        st = time.time()
-        print('starting analysis')
+        # Here we just take all flags & call run() with em.            
+        props = list(self.get_data().keys())
         
-        # Loop over time
-        for i in np.arange(self.settings['n_steps']):
-            if i % self.options['frameskip']:
+        # Remove stuff related to cluster analysis
+        props.remove('dipoles')
+        props.remove('clusters')
+        props.remove('n_total')
+        props.remove('n_dipole')
+        props.remove('n_cluster')
+        
+        # And add main cluster flag
+        props.append(ANALYSIS_CHOICE.CLUSTER_ANALYSIS)
+        
+        # Analyze
+        self.run(props)
+        
+        # Leave the old code for now...
+        return self.get_data()
+        
+        # # Loop over time
+        # for i in np.arange(self.settings['n_steps']):
+        #     if i % self.options['frameskip']:
+        #         continue
+            
+        #     # Construct configuration with id map
+        #     cfg = get_active_vortex_cfg(self.vortices, i)
+            
+        #     # Detect dipoles and clusters
+        #     self.dipoles.append( self.find_dipoles(cfg) )
+        #     self.clusters.append( self.find_clusters(cfg) )
+            
+        #     # Vortex number statistics
+        #     self.n_total.append( len(cfg['ids']) ) 
+        #     self.n_dipole.append( len(self.dipoles[-1]) ) 
+        #     self.n_cluster.append( len(np.unique(self.clusters[-1])) )
+            
+        #     # Compute smallest distance(does this cause problems with image energies..???)
+        #     # self.smallestDistance.append( self.get_smallest_distance(i) )
+            
+        #     # Compute RMS distance for non-dipoles
+        #     self.rmsNonDipole.append( self.get_rms_dist(i, which = RMS_CHOICE.NON_DIPOLE) )
+            
+        #     # Compute RMS distance for non-dipoles, the Barenghi way
+        #     self.rmsNonDipoleNonCentered.append( self.get_rms_dist(i, which = RMS_CHOICE.NON_DIPOLE, rel = RMS_CHOICE.REL_INITIAL_POS))
+            
+        #     # Compute RMS distance of clusters, the Barenghi way
+        #     self.rmsClusterNonCentered.append( self.get_rms_dist(i, which = RMS_CHOICE.CLUSTER, rel = RMS_CHOICE.REL_INITIAL_POS) )
+            
+        #     # Compute RMS distance
+        #     self.rmsCluster.append( self.get_rms_dist(i, which = RMS_CHOICE.CLUSTER) )
+            
+        #     # Compute RMS distance of vortex id = 0
+        #     # self.rmsFirstVortex.append( self.get_rms_dist(i, which = RMS_CHOICE.FIRST_VORTEX ) )
+            
+        #     # Compute the temporal autocorelation
+        #     self.auto_corr.append( self.get_auto_corr(i) )
+            
+        #     # Compute energy
+        #     # self.energies.append( self.get_energy(i) )
+            
+        #     # For debug purposes, compute energy from images and real vortices separately
+        #     # self.energies2.append( self.get_energy(i, debug = True))
+            
+        #     # Compute dipole moment
+        #     # self.dipole_moment.append( self.get_dipole_moment(i) )
+            
+        #     # Compute weighted pair correlation
+        #     # self.pair_corr_w.append( self.get_pair_corr3(cfg, weighted = True) )
+            
+        #     # Compute non-weighted pair correlation
+        #     # self.pair_corr.append( self.get_pair_corr3(cfg) )
+            
+        # # All should be turned into numpy arrays
+        # self.energies = np.array(self.energies)
+        # self.dipole_moment = np.array(self.dipole_moment)
+        
+        # tt = time.time() - st
+        # mins = tt // 60
+        # sec = tt % 60
+        # print('analysis complete after %d min %d sec' % (mins, sec))
+        
+        # return self.get_data()
+    
+    
+    def get_energies(self, t, cfg = None):
+        return self.get_energy(t)
+    
+    def get_energies2(self, t, cfg = None):
+        return self.get_energy(t, debug = True)
+
+    def get_rmsCluster(self, t, cfg = None):
+        return self.get_rms_dist(t, which = RMS_CHOICE.CLUSTER)
+    
+    def get_rmsNonDipole(self, t, cfg = None):
+        return self.get_rms_dist(t, which = RMS_CHOICE.NON_DIPOLE)
+    
+    def get_rmsClusterNonCentered(self, t, cfg = None):
+        return self.get_rms_dist(t, which = RMS_CHOICE.CLUSTER, rel = RMS_CHOICE.REL_INITIAL_POS)
+    
+    def get_rmsNonDipoleNonCentered(self, t, cfg = None):
+        return self.get_rms_dist(t, which = RMS_CHOICE.NON_DIPOLE, rel = RMS_CHOICE.REL_INITIAL_POS)
+    
+    def get_rmsFirstVortex(self, t, cfg = None):
+        return self.get_rms_dist(t, which = RMS_CHOICE.FIRST_VORTEX )
+    
+    def get_pair_corr(self, t, cfg):
+        return self.get_pair_corr3(cfg)
+    
+    def get_pair_corr_w(self, t, cfg):
+        return self.get_pair_corr3(cfg, weighted = True)
+    
+    def get_auto_corr(self, t, cfg):
+        return self.get_autocorrelation(t)
+    
+    def get_auto_corr_cluster(self, t, cfg):
+        return self.get_autocorrelation(t, which = RMS_CHOICE.CLUSTER)
+    
+    def get_auto_corr_nondipole(self, t, cfg):
+        return self.get_autocorrelation(t, which = RMS_CHOICE.NON_DIPOLE)
+    
+    def get_auto_corr_dipole(self, t, cfg):
+        return self.get_autocorrelation(t, which = RMS_CHOICE.DIPOLE)
+    
+    def get_dipole_moment(self, t):
+        D = 0
+        
+        for v in self.vortices:
+            if not v.is_alive(t):
                 continue
             
-            # Construct configuration with id map
-            cfg = get_active_vortex_cfg(self.vortices, i)
-            
-            # Detect dipoles and clusters
-            self.dipoles.append( self.find_dipoles(cfg) )
-            self.clusters.append( self.find_clusters(cfg) )
-            
-            # Vortex number statistics
-            self.n_total.append( len(cfg['ids']) ) 
-            self.n_dipole.append( len(self.dipoles[-1]) ) 
-            self.n_cluster.append( len(np.unique(self.clusters[-1])) )
-            
-            # Compute smallest distance(does this cause problems with image energies..???)
-            # self.smallestDistance.append( self.get_smallest_distance(i) )
-            
-            # Compute RMS distance for non-dipoles
-            self.rmsNonDipole.append( self.get_rms_dist(i, which = RMS_CHOICE.ALL_BUT_DIPOLE) )
-            
-            # Compute RMS distance for non-dipoles, the Barenghi way
-            self.rmsNonDipoleNonCentered.append( self.get_rms_dist(i, which = RMS_CHOICE.ALL_BUT_DIPOLE, rel = RMS_CHOICE.REL_INITIAL_POS))
-            
-            # Compute RMS distance of clusters, the Barenghi way
-            self.rmsClusterNonCentered.append( self.get_rms_dist(i, which = RMS_CHOICE.CLUSTER, rel = RMS_CHOICE.REL_INITIAL_POS) )
-            
-            # Compute RMS distance
-            self.rmsCluster.append( self.get_rms_dist(i, which = RMS_CHOICE.CLUSTER) )
-            
-            # Compute RMS distance of vortex id = 0
-            # self.rmsFirstVortex.append( self.get_rms_dist(i, which = RMS_CHOICE.FIRST_VORTEX ) )
-            
-            # Compute the temporal autocorelation
-            self.autocorrelation.append( self.get_autocorr(i) )
-            
-            # Compute energy
-            # self.energies.append( self.get_energy(i) )
-            
-            # For debug purposes, compute energy from images and real vortices separately
-            # self.energies2.append( self.get_energy(i, debug = True))
-            
-            # Compute dipole moment
-            # self.dipoleMoment.append( self.get_dipole_moment(i) )
-            
-            # Compute weighted pair correlation
-            # self.pair_corr_w.append( self.get_pair_corr3(cfg, weighted = True) )
-            
-            # Compute non-weighted pair correlation
-            # self.pair_corr.append( self.get_pair_corr3(cfg) )
-            
-        # All should be turned into numpy arrays
-        self.energies = np.array(self.energies)
-        self.dipoleMoment = np.array(self.dipoleMoment)
+            D = D + np.sign(v.circ)*v.get_pos(t)
         
-        tt = time.time() - st
-        mins = tt // 60
-        sec = tt % 60
-        print('analysis complete after %d min %d sec' % (mins, sec))
+        return np.abs(D)/len(D)
         
-        return self.get_data()
     
-
-    # Returns the data of a full analysis.
-    # TOOD: add flags that restrict analysis to certain properties to speed things up
-    # TODO: T HIS IS SO STUPID. HAVE THE SAME NAMES FOR EVERYTHING OR ITS A 0)(#¤=#)¤ MESS)
-    def get_data(self):
-        return {
+    # Set to true to save debug data, such as im/real energies, smallest dist etc
+    def get_data(self, debug = False):
+        public = {
             'dipoles': self.dipoles,
             'clusters': self.clusters,
             'n_total': self.n_total,
             'n_dipole': self.n_dipole,
             'n_cluster': self.n_cluster,
             'energies': self.energies,
-            'energies2': self.energies2,
-            'dipoleMoment': self.dipoleMoment,
+            # 'energies2': self.energies2,
+            'dipole_moment': self.dipole_moment,
             'rmsCluster': self.rmsCluster,
             'rmsNonDipole': self.rmsNonDipole,
             'rmsClusterNonCentered': self.rmsClusterNonCentered,
@@ -239,12 +350,23 @@ class Analysis:
             'rmsFirstVortex': self.rmsFirstVortex,
             'pair_corr': self.pair_corr,
             'pair_corr_w': self.pair_corr_w,
-            'auto_corr': self.autocorrelation,
+            'auto_corr': self.auto_corr,
             'auto_corr_cluster': self.auto_corr_cluster,
             'auto_corr_nondipole': self.auto_corr_nondipole,
-            'smallestDistance': self.smallestDistance
-                }
+            'auto_corr_dipole': self.auto_corr_dipole
+            # 'smallestDistance': self.smallestDistance
+        }
     
+        private = {
+            'energies2': self.energies2,
+            'smallestDistance': self.smallestDistance
+        }
+        
+        if debug:
+            public.update(private)
+            
+        return public
+        
     
     # Completes a given file to a full analysis. 
     # Note: only fills in _empty_ attributes, if some attribute has been calculated using old code it remains
@@ -289,51 +411,40 @@ class Analysis:
                 
             else:
                 to_analyze.append( attr )
-                
-            else:
-                print(f"Not analyzing: {attr}")
-                # print(dir(ANALYSIS_CHOICE))
         
         print(f'Analyzing: {to_analyze}')
+        
+        
         # Do the analysis
-        # self.run(to_analyze)
+        self.run(to_analyze)
         
         # Re-save the file
         # self.save()
         
             
     ### remove ### --- used for debug purposes
-    def get_smallest_distance(self, i):
-        mindist = np.Inf
-        for v1 in self.vortices:
-            if not v1.is_alive(i):
-                continue
+    # def get_smallest_distance(self, i):
+    #     mindist = np.Inf
+    #     for v1 in self.vortices:
+    #         if not v1.is_alive(i):
+    #             continue
             
-            for v2 in self.vortices:
-                if not v2.is_alive(i):
-                    continue
+    #         for v2 in self.vortices:
+    #             if not v2.is_alive(i):
+    #                 continue
                 
-                if v1.id == v2.id:
-                    continue
+    #             if v1.id == v2.id:
+    #                 continue
                 
-                newdist = eucl_dist(v1.get_pos(i), v2.get_pos(i))
+    #             newdist = eucl_dist(v1.get_pos(i), v2.get_pos(i))
                 
-                if newdist < mindist:
-                    mindist = newdist
+    #             if newdist < mindist:
+    #                 mindist = newdist
                     
-        return mindist
+    #     return mindist
             
         
-    def get_dipole_moment(self, i):
-        D = 0
-        
-        for v in self.vortices:
-            if not v.is_alive(i):
-                continue
-            
-            D = D + np.sign(v.circ)*v.get_pos(i)
-        
-        return np.abs(D)/len(D)
+
     
     
     """
@@ -464,10 +575,33 @@ class Analysis:
             
         return A
     
-    def get_autocorr(self, i):
-        return np.sum(
-            [np.dot(v1.get_pos(i), v1.get_pos(0)) for v1 in self.vortices if v1.is_alive(i)]
+    def get_autocorrelation(self, t, which = RMS_CHOICE.ALL):
+        # Put together the ids which we compute rms on
+        ids = np.array([])
+        all_ids = [v.id for v in self.vortices]
+        
+        if which == RMS_CHOICE.CLUSTER:
+            ids = list(chain.from_iterable(np.array(self.clusters[t])))
+        elif which == RMS_CHOICE.DIPOLE:
+            ids = np.array(self.dipoles[t])
+        elif which == RMS_CHOICE.FIRST_VORTEX:
+            ids = np.array([[0]])
+        elif which == RMS_CHOICE.NON_DIPOLE:
+            dipoles = self.dipoles[t]
+            ids = [id_ for id_ in all_ids if id_ not in dipoles]
+        elif which == RMS_CHOICE.ALL:
+            ids = all_ids
+        
+        if not len(ids):
+            return 0
+        
+        # print(f"Cluster ids: {cids}, Nondipole ids: {nids}")
+        
+        ac = np.sum(
+            [np.dot(v1.get_pos(t), v1.get_pos(0)) for v1 in self.vortices if v1.is_alive(t) and v1.id in ids]
             )
+        
+        return ac
     
     """
     
@@ -626,20 +760,22 @@ class Analysis:
         all_ids = [v.id for v in self.vortices]
         
         if which == RMS_CHOICE.CLUSTER:
-            ids = np.array(self.clusters[tid])
+            ids = list(chain.from_iterable(np.array(self.clusters[tid])))
         elif which == RMS_CHOICE.DIPOLE:
             ids = np.array(self.dipoles[tid])
         elif which == RMS_CHOICE.FIRST_VORTEX:
             ids = np.array([[0]])
-        elif which == RMS_CHOICE.ALL_BUT_DIPOLE:
+        elif which == RMS_CHOICE.NON_DIPOLE:
             dipoles = self.dipoles[tid]
-            ids = [[id_ not in dipoles for id_ in all_ids]]
+            ids = [id_ for id_ in all_ids if id_ not in dipoles]
+        elif which == RMS_CHOICE.ALL:
+            ids = all_ids
         
         if not len(ids):
             return 0
         
         # Since the id arrays are of type [[id1, id2], [id3, id4], ...], we concatenate
-        ids = np.concatenate(ids)
+        # ids = np.concatenate(ids)
         
         # Get the living and matching vortices
         mask = [v.is_alive(tid) and v.id in ids for v in self.vortices]
@@ -894,7 +1030,7 @@ class Analysis:
 #                return
         
         # TODO: standardize to PlotChoice alternatives
-        data = self.get_data()
+        data = self.get_data( debug = False )
         
         with open(fname, "wb") as f:
             pickle.dump(data, f)

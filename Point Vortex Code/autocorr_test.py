@@ -20,3 +20,8 @@ autocorr = np.sum([t*t for t in ts])
 rms = np.sum([np.linalg.norm(t)**2 for t in ts])
 
 ac = np.sum([np.dot(t,t) for t in ts])
+
+tsss = {
+'you': 55,
+'there': 66 
+}

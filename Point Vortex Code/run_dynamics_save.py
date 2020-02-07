@@ -10,19 +10,19 @@ import PVM as pvm
 
 # First set up initial conditions
 n_vortices = 50
-domain_radius = 200
-annihilate_at_radius = 185
+domain_radius = 1000
+annihilate_at_radius = 985
 
 params = {
         'center': [1e-4, 1e-4],
-        'sigma': 10
+        'sigma': 40
         }
 
 cfg = pvm.Configuration(
         n_vortices,
         domain_radius,
         pvm.CONFIG_STRAT.SINGLE_CLUSTER,
-        pvm.CONFIG_STRAT.CIRCS_ALL_POSITIVE,
+        pvm.CONFIG_STRAT.CIRCS_EVEN,
         None,
         params,
         {
@@ -30,7 +30,7 @@ cfg = pvm.Configuration(
         }
         )
 
-T = 1000
+T = 999
 ev_config = {
     'n_vortices': n_vortices,
     'domain_radius': domain_radius,
@@ -48,7 +48,14 @@ evolver.save()
 traj_data = evolver.get_trajectory_data()
 
 analysis = pvm.Analysis(None, traj_data)
-analysis_data = analysis.full_analysis()
+
+to_analyze = [
+    pvm.ANALYSIS_CHOICE.CLUSTER_ANALYSIS,
+    pvm.ANALYSIS_CHOICE.AUTO_CORR_CLUSTER,
+    pvm.ANALYSIS_CHOICE.RMS_CLUSTER_NON_CENTERED
+    ]
+
+analysis_data = analysis.run(to_analyze)
 analysis.save()
 
 #pc = [pvm.PlotChoice.vortices, pvm.PlotChoice.energy]
