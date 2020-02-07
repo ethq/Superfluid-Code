@@ -5,17 +5,16 @@ Created on Wed Feb  5 10:19:02 2020
 @author: Zak
 """
 
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Jan 23 10:42:32 2019
-
-@author: Zak
-"""
-
 import PVM as pvm
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import tqdm
+import scipy.stats as st
+
+
+lc = (*pvm.Utilities.hex2one('#bd2b2b'), 0.3)
+lb = (*pvm.Utilities.hex2one('#383535'), 1)
 
 # fname = 'N20_T50_S768390681'
 # fname = 'N20_T50_S457173602'
@@ -31,46 +30,86 @@ import matplotlib.pyplot as plt
 # fname = 'N40_T500_S517932362' ### Mixed
 
 
-fnames = ['N50_T500_S836575032', ### Mixed
-          'N50_T500_S308947746', ### Mixed
-          'N50_T500_S752728417', ### Mixed
-          'N40_T500_S517932362',
-          # 'N30_T500_S144692810',
-          'N50_T500_S560206210',
-          'N50_T500_S853514746'
-          # 'N20_T500_S402701135'
-          ]
-
-nonDipoleNonCenteredRms2 = []
-t = 1 + np.arange(50000)
-
-for f in fnames:
-    fname_analysis = 'Datafiles/Analysis_' + f + '.dat'    
-    fname_evolution = 'Datafiles/Evolution_' + f + '.dat'
+# Load fnames - use save_metadata.py to get a set of seeds satisfying certain criteria
+seedf = 'Metadata/N50_T500_Mixed.dat'
+with open(seedf, 'rb') as f:
+    seeds = pickle.load(f)
     
-    ef = open(fname_evolution, "rb")
+fnames = ['N50_T500_S' + str(s) for s in seeds]
+
+# What are we looking at?
+statistic = 'rmsCluster'
+# statistic = 'rmsNonDipole'
+# statistic = 'rmsClusterNonCentered'
+# statistic = 'rmsNonDipoleNonCentered'
+# statistic = 'auto_corr'
+
+# statistics = ['rmsCluster', 'rmsClusterNonCentered']
+
+vals = []
+t = 1 + np.arange(50000) #### Assumes all seeds have fixed T = 500, dt = .1
+
+for f in tqdm(fnames):
+    fname_analysis = 'Datafiles/Analysis_' + f + '.dat'    
+    # fname_evolution = 'Datafiles/Evolution_' + f + '.dat'
+    
+    # ef = open(fname_evolution, "rb")
     af = open(fname_analysis, "rb")
             
-    evolution_data = pickle.load(ef)
+    # evolution_data = pickle.load(ef)
     analysis_data = pickle.load(af)
 
-    settings = evolution_data['settings']
+    # settings = evolution_data['settings']
     
-    nonDipoleNonCenteredRms2.append( [[np.sum(d) for d in analysis_data['rmsNonDipoleNonCentered']]] )
+    # Some files may not have it(can extend their analysis)
+    if not statistic in analysis_data:# or not statistics[1] in analysis_data:
+        tqdm.write(f'{f} did not contain {statistic}')
+        continue
     
-    plt.plot(t, np.array(nonDipoleNonCenteredRms2[-1]).flatten()/t, label = f"R: {settings['domain_radius']}, N: {settings['max_n_vortices']}")
+    # Add statistic - the sum here is over all vortices, leaving us with the statistic as f(t)
+    # vals.append( 
+    #     np.array([[np.sum(d) for d in analysis_data[statistics[1]]]]).flatten()/t  
+    #     - np.array([[np.sum(d) for d in analysis_data[statistics[0]]]]).flatten()/t
+    #     )
+    
+    vals.append( np.array([[np.sum(d) for d in analysis_data[statistic]]]).flatten() )
+    
+    # For autocorrelation, sum has already been done. Could perhaps wait, so we have single-particle autocorrelations?
+    # vals.append( analysis_data[statistic] - analysis_data[statistic][0])
+    
+    # Plot it
+    plt.plot(t, vals[-1], color = lc)
     
     
     af.close()
-    ef.close()
+    # ef.close()
     
-ndncrms2 = np.mean(nonDipoleNonCenteredRms2, axis = 0).flatten()
+# If centered, add some small values at t = 0 to give non-infinite confidence intervals
+# for v in vals:
+    # v[0] = np.random.normal(0, 1e-6)
+    
+    
+# Calculate its 95% confidence interval
+cfid = st.t.interval(0.95, len(vals)-1, loc=np.mean(vals, axis = 0), scale=st.sem(vals, axis = 0))
+
+# Plot it
+plt.fill_between(t, cfid[0], cfid[1])
 
 
+# Get the average
+avg = np.mean(vals, axis = 0).flatten()
 
-plt.plot(t, ndncrms2/t, label = 'Average')
-plt.legend()
+plt.plot(t, avg, label = 'Average', color = lb)
+# plt.legend()
+
+plt.xlabel('Time')
+
 plt.show()
+
+
+
+
+
 # plotter = pvm.HarryPlotter(fname)
 
 # pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.rmsNonDipoleNonCentered, pvm.PlotChoice.energy]

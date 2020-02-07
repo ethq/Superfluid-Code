@@ -22,7 +22,7 @@ cfg = pvm.Configuration(
         n_vortices,
         domain_radius,
         pvm.CONFIG_STRAT.SINGLE_CLUSTER,
-        pvm.CONFIG_STRAT.CIRCS_EVEN,
+        pvm.CONFIG_STRAT.CIRCS_ALL_POSITIVE,
         None,
         params,
         {
@@ -30,7 +30,7 @@ cfg = pvm.Configuration(
         }
         )
 
-T = 500
+T = 1000
 ev_config = {
     'n_vortices': n_vortices,
     'domain_radius': domain_radius,

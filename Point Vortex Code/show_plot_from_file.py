@@ -25,6 +25,7 @@ import PVM as pvm
 # fname = 'N50_T500_S308947746' ### Mixed
 # fname = 'N50_T500_S752728417' ### Mixed
 fname = 'N50_T500_S853514746' ### Mixed
+fname = 'N50_T500_S189428672' ### Mixed
 
 
 # fname = 'N30_T500_S550439413' ### Chiral
@@ -32,9 +33,9 @@ fname = 'N50_T500_S853514746' ### Mixed
 
 plotter = pvm.HarryPlotter(fname)
 
-# pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.rmsNonDipoleNonCentered, pvm.PlotChoice.energy]
+pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.rmsNonDipoleNonCentered]
 # pc = [pvm.PlotChoice.rmsCluster]
 
-# plotter.plot(pc)
+plotter.plot(pc)
 
-plotter.plot_cfg(percent = 80)
+# plotter.plot_cfg(percent = 80)

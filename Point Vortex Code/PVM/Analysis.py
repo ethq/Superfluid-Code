@@ -48,35 +48,37 @@ from PVM.Conventions import Conventions
 """
 
 class RMS_CHOICE:
-    CLUSTER = 1,
-    DIPOLE = 2,
-    FREE = 3,
-    ALL = 4,
-    FIRST_VORTEX = 5,
-    ALL_BUT_DIPOLE = 6,
+    CLUSTER = 1
+    DIPOLE = 2
+    FREE = 3
+    ALL = 4
+    FIRST_VORTEX = 5
+    ALL_BUT_DIPOLE = 6
     
-    REL_INITIAL_POS = 998,
+    REL_INITIAL_POS = 998
     REL_ORIGIN = 999
     
     
 class ANALYSIS_CHOICE:
     FULL = 'full',
     
-    RMS_NON_DIPOLE_CENTERED = 'rmsNonDipoleCentered',
-    RMS_NON_DIPOLE_IP = 'rmsNonDipoleNonCentered',
-    RMS_CLUSTER_CENTERED = 'rmsCluster',
-    RMS_CLUSTER_IP = 'rmsClusterNonCentered',
-    RMS_FIRST_VORTEX = 'rmsFirstVortex',
+    RMS_NON_DIPOLE_CENTERED = 'rmsNonDipoleCentered'
+    RMS_NON_DIPOLE_IP = 'rmsNonDipoleNonCentered'
+    RMS_CLUSTER_CENTERED = 'rmsCluster'
+    RMS_CLUSTER_IP = 'rmsClusterNonCentered'
+    RMS_FIRST_VORTEX = 'rmsFirstVortex'
+
+    DIPOLE_MOMENT = 'dipoleMoment'
+    ENERGIES = 'energies'
+    ENERGIES_IM_REAL = 'energies2'
     
-    DIPOLE_MOMENT = 'dipoleMoment',
-    ENERGIES = 'energies',
-    ENERGIES_IM_REAL = 'energies2',
+    PAIR_CORR_SPACE = 'pair_corr'
+    PAIR_CORR_SPACE_W = 'pair_corr_w'
+    PAIR_CORR_TEMPORAL = 'auto_corr'
+    PAIR_CORR_TEMPORAL_CLUSTER = 'auto_corr_cluster'
+    PAIR_CORR_TEMPORAL_NONDIPOLE = 'auto_corr_nondipole'
     
-    PAIR_CORR_SPACE = 'pair_corr',
-    PAIR_CORR_SPACE_W = 'pair_corr_w',
-    PAIR_CORR_TEMPORAL = 'auto_corr',
-    
-    CLUSTER_ANALYSIS = 'cluster_analysis',
+    CLUSTER_ANALYSIS = 'cluster_analysis'
 
 class Analysis:
     
@@ -84,15 +86,23 @@ class Analysis:
             'frameskip': 1
             }):
         
-        # We must either have a datafile or get the data directly passed to us
-        assert fname or traj_data
-        
         if fname:
             fname = 'Datafiles/Evolution_' + fname + '.dat'
             with open(fname, "rb") as f:
                 data = pickle.load(f)                
         else:
             data = traj_data
+        
+        # Allow this for extending
+        if not fname and not traj_data:
+            data = {
+                'settings': None,
+                'vortices': None,
+                'trajectories': None,
+                'circulations': None
+                }
+        
+
         
         self.fname = fname
             
@@ -117,6 +127,8 @@ class Analysis:
         self.smallestDistance = []
         
         self.autocorrelation = []
+        self.auto_corr_cluster = []
+        self.auto_corr_nondipole = []
         
         self.n_total = []
         self.n_dipole = []
@@ -130,6 +142,8 @@ class Analysis:
         
         st = time.time()
         print('starting partial analysis')
+        
+        # Now we need a map from properties -> functions that calculate them. Good lord
         
     
     # Run a complete cluster analysis for all time frames
@@ -207,6 +221,7 @@ class Analysis:
 
     # Returns the data of a full analysis.
     # TOOD: add flags that restrict analysis to certain properties to speed things up
+    # TODO: T HIS IS SO STUPID. HAVE THE SAME NAMES FOR EVERYTHING OR ITS A 0)(#¤=#)¤ MESS)
     def get_data(self):
         return {
             'dipoles': self.dipoles,
@@ -225,6 +240,8 @@ class Analysis:
             'pair_corr': self.pair_corr,
             'pair_corr_w': self.pair_corr_w,
             'auto_corr': self.autocorrelation,
+            'auto_corr_cluster': self.auto_corr_cluster,
+            'auto_corr_nondipole': self.auto_corr_nondipole,
             'smallestDistance': self.smallestDistance
                 }
     
@@ -250,10 +267,10 @@ class Analysis:
         self.circulations = evolution_data['circulations']
 
         # Get the properties that are exposed to users of this class, or those who load its saved files        
-        sd = self.get_data().keys()
+        sk = self.get_data().keys()
         
         # Set only these properties from analysis_data
-        [setattr(self, k, v) for k,v in analysis_data if k in sd]
+        [setattr(self, k, v) for k, v in analysis_data.items() if k in sk]
 
         # Remember remember the fifth of november
         af.close()
@@ -261,22 +278,29 @@ class Analysis:
         
         to_analyze = []
         # Loop over own properties
-        for attr in sd:
+        for attr in sk:
             # If it's set, move on
-            if getattr(self, attr) or (not props and attr not in props):
+            if getattr(self, attr) or (props and attr not in props):
                 continue
             
             # Otherwise, analyze and set it
             if attr in ['dipoles', 'clusters', 'n_total', 'n_dipole', 'n_cluster']:
                 to_analyze.append(ANALYSIS_CHOICE.CLUSTER_ANALYSIS)
                 
-            elif attr in dir(ANALYSIS_CHOICE):
+            else:
                 to_analyze.append( attr )
                 
             else:
                 print(f"Not analyzing: {attr}")
-                
-        self.run(to_analyze)
+                # print(dir(ANALYSIS_CHOICE))
+        
+        print(f'Analyzing: {to_analyze}')
+        # Do the analysis
+        # self.run(to_analyze)
+        
+        # Re-save the file
+        # self.save()
+        
             
     ### remove ### --- used for debug purposes
     def get_smallest_distance(self, i):
@@ -442,7 +466,7 @@ class Analysis:
     
     def get_autocorr(self, i):
         return np.sum(
-            [v1.get_pos(i)*v1.get_pos(0) for v1 in self.vortices if v1.is_alive(i)]
+            [np.dot(v1.get_pos(i), v1.get_pos(0)) for v1 in self.vortices if v1.is_alive(i)]
             )
     
     """

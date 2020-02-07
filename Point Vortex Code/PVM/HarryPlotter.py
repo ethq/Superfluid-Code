@@ -100,7 +100,7 @@ class HarryPlotter:
                         'ylabel': 'Differential',
                         'labels': ['Images', 'Real'],
                         'lines': 2,
-                        'data': [self.energies2[:, 1] - np.mean(self.energies2[0, 1]), self.energies2[:, 0] - np.mean(self.energies2[0, 0])]   # (1580, 480)
+                        # 'data': [self.energies2[:, 1] - np.mean(self.energies2[0, 1]), self.energies2[:, 0] - np.mean(self.energies2[0, 0])]   # (1580, 480)
                     },
                 PlotChoice.dipoleMoment:
                     {
@@ -145,7 +145,7 @@ class HarryPlotter:
                           'ylabel': 'RMS distance',
                           'labels': ['RMS distance'],
                           'lines': 1,
-                          'data': [analysis_data['rmsFirstVortex']]
+                           'data': [analysis_data['rmsFirstVortex']]
                     },
                 PlotChoice.energyPerVortex:
                     {
