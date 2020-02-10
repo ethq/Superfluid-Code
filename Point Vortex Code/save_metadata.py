@@ -23,34 +23,34 @@ seeds = []
 for f in files:
     # print(f)
     # Pick out only evolution files, then seeds are automatically unique
-    expr = 'Evolution_N50_T500_S[0-9]+\.dat'
+    expr = 'Evolution_N100_T999_S[0-9]+\.dat'
     m = re.search(expr, f)
     
     if not m:
-        print(f'File not added: {f}')
+        # print(f'File not added: {f}')
         continue
     
-    # Make sure its got an even number of signs and radius 200
-    fname = 'Datafiles/' + f
-    with open(fname, "rb") as g:
-        data = pickle.load(g)  
+    # # Make sure its got an even number of signs and radius 200
+    # fname = 'Datafiles/' + f
+    # with open(fname, "rb") as g:
+    #     data = pickle.load(g)  
     
-    # Sum circulations
-    c = int(np.sum(data['circulations'][0][0]))
+    # # Sum circulations
+    # c = int(np.sum(data['circulations'][0][0]))
     
-    r = int(data['settings']['domain_radius'])
+    # r = int(data['settings']['domain_radius'])
     
-    if c or r != 200:
-        print(f'File had incorrect circ({c}) or radius({r}). {f}')
-        continue
+    # if not c or r != 2000:
+    #     print(f'File had incorrect circ({c}) or radius({r}). {f}')
+    #     continue
     
-    # Slice is as follows because Evolution_N50_T500_S = 20 characters, .dat = 4 characters
-    seed = int(m[0][20:-4])
+    # # Slice is as follows because Evolution_N100_T500_S = 20 characters, .dat = 4 characters
+    seed = int(m[0][21:-4])
     
     seeds.append(seed)
-    print(f'Added seed: {seed}')
+    print(f'Added seed: {m[0]}')
 
-fname = 'Metadata/N50_T500_Mixed.dat'
+fname = 'Metadata/N100_T999_Mixed.dat'
 with open(fname, 'wb') as f:
     pickle.dump(seeds, f)
     

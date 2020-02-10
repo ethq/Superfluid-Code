@@ -62,7 +62,7 @@ class RMS_CHOICE:
 class ANALYSIS_CHOICE:
     FULL = 'full',
     
-    RMS_NON_DIPOLE_CENTERED = 'rmsNonDipoleCentered'
+    RMS_NON_DIPOLE_CENTERED = 'rmsNonDipole'
     RMS_NON_DIPOLE_NON_CENTERED = 'rmsNonDipoleNonCentered'
     RMS_CLUSTER_CENTERED = 'rmsCluster'
     RMS_CLUSTER_NON_CENTERED = 'rmsClusterNonCentered'
@@ -176,7 +176,7 @@ class Analysis:
             for p in props:
                 # Get the function that does the udpating
                 f = 'get_' + p
-                
+                # print(f,p)
                 # Make sure we aint doin stupid stuff
                 assert hasattr(self, f)
                 assert hasattr(self, p)
@@ -320,7 +320,7 @@ class Analysis:
     def get_auto_corr_dipole(self, t, cfg):
         return self.get_autocorrelation(t, which = RMS_CHOICE.DIPOLE)
     
-    def get_dipole_moment(self, t):
+    def get_dipole_moment(self, t, cfg):
         D = 0
         
         for v in self.vortices:
@@ -803,7 +803,7 @@ class Analysis:
     domain not isotropic, correction to shell area needed
     current assumption is a circular domain
     """
-    def get_pair_corr(self, cfg, tid = 0):
+    def get_pair_corr4(self, cfg, tid = 0):
         # Shell thickness
         dr = 0.1
         rmax = 1

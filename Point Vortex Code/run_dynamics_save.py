@@ -9,9 +9,9 @@ import ctypes
 import PVM as pvm
 
 # First set up initial conditions
-n_vortices = 50
-domain_radius = 1000
-annihilate_at_radius = 985
+n_vortices = 100
+domain_radius = 2000
+annihilate_at_radius = 1985
 
 params = {
         'center': [1e-4, 1e-4],
@@ -30,12 +30,12 @@ cfg = pvm.Configuration(
         }
         )
 
-T = 999
+T = 998
 ev_config = {
     'n_vortices': n_vortices,
     'domain_radius': domain_radius,
     'annihilate_at_radius': annihilate_at_radius,
-    'gamma': 0,
+    'gamma': 0.05,
     'T': T,
     'spawn_rate': 0,
     'cfg': cfg
@@ -52,7 +52,13 @@ analysis = pvm.Analysis(None, traj_data)
 to_analyze = [
     pvm.ANALYSIS_CHOICE.CLUSTER_ANALYSIS,
     pvm.ANALYSIS_CHOICE.AUTO_CORR_CLUSTER,
-    pvm.ANALYSIS_CHOICE.RMS_CLUSTER_NON_CENTERED
+    pvm.ANALYSIS_CHOICE.RMS_CLUSTER_NON_CENTERED,
+    pvm.ANALYSIS_CHOICE.RMS_CLUSTER_CENTERED,
+    pvm.ANALYSIS_CHOICE.RMS_NON_DIPOLE_CENTERED,
+    pvm.ANALYSIS_CHOICE.RMS_NON_DIPOLE_NON_CENTERED,
+    pvm.ANALYSIS_CHOICE.PAIR_CORR_W,
+    pvm.ANALYSIS_CHOICE.PAIR_CORR,
+    pvm.ANALYSIS_CHOICE.DIPOLE_MOMENT
     ]
 
 analysis_data = analysis.run(to_analyze)
