@@ -19,6 +19,9 @@ Evolves a given initial configuration in time
         dt:                [Float]   Timestep
         tol:               [Float]   Tolerance for interval splitting
         initial_radius:    [Integer] Radial extent of initial vortex spawning
+        tf_profile:        [Function] Expects 2 args, x and y. If lists, must be ndarray.
+                                      Given some potential V, this returns the Thomas-Fermi profile
+                                      sqrt(1-V) at locations (x,y)
         spawn_sep:         [Float] Dipole spawning separation
         spawn_rate:        [Integer] Rate of Poisson process, relative to normalized max timesteps N = 1
         stirrer_rad:       [Float] Radius of stirring object
@@ -88,13 +91,14 @@ def calc_dist_mesh(pos, domain_radius, n_vortices):
 class Evolver:
 
     def __init__(self,
-                 n_vortices,
-                 cfg,
+                 n_vortices = -1,
+                 cfg = None,
                  T = 50,
                  dt = 0.01,
                  tol = 1e-8,
                  max_iter = 15,
-                 annihilation_threshold = 1e-3,
+                 tf_profile = None,
+                 annihilation_threshold = 1e-2,
                  verbose = True,
                  domain_radius = 3,
                  gamma = 0.01,
@@ -108,9 +112,6 @@ class Evolver:
                  temperature = .001,
                  rk_degree = 4
                  ):
-        if warm_file:
-            self.warm_start(warm_file)
-            return
         
         self.annihilate_at_radius = annihilate_at_radius
         self.initial_radius = initial_radius
@@ -118,6 +119,7 @@ class Evolver:
         self.n_vortices = n_vortices
         self.max_n_vortices = n_vortices
         self.T = T
+        self.tf_profile = tf_profile
 
         # self.mc_settings = {
         #         'temperature': temperature,
@@ -144,7 +146,13 @@ class Evolver:
         self.init_breaker = 0
         self.init_max_attempts = 1e3
         
-        # Initialize vortex positions
+        # Initialize configuration - unless warm-starting
+        if not cfg:
+            if not warm_file:
+                raise ValueError('You must either give Evolver a configuration or start it from a file.')
+            
+            cfg = self.warm_start(warm_file)
+        
         self.initial_positions = cfg.pos
         
         # Initialize vortex circulations
@@ -193,14 +201,20 @@ class Evolver:
         elif rk_degree == 5:
             self.rk_step = self.rk5_step
         else:
-            raise NotImplementedError('this degree of runge-kutta has not been implemented')
+            raise NotImplementedError(f'Runge-Kutta {rk_degree} has not been implemented')
     
     def warm_start(self, fname):
         fname = 'Datafiles/Evolution_' + fname
         with open(fname, "rb") as f:
             data = pickle.load(f)                
         
-        self.set_trajectory_data(data)
+        # Create an empty "Configuration" object - we only need it to have these three properties
+        cfg = type('test', (), {})()
+        cfg.pos = data['trajectories'][-1]
+        cfg.circulations = data['circulations'][-1]
+        cfg.seed = 'w' + str(data['settings']['seed']) # We append a w to the seed to indicate that it's been warm-started
+        
+        return cfg
         
         # ... and then evolve another batch forward
     
@@ -401,12 +415,27 @@ class Evolver:
 #        print(f'dxi: {dxi}, dyi: {dyi}')
         
         # Dissipative dynamics
-        dxd = + self.gamma*np.sum(circ*circ.T*xx_temp.T/rr1, 0).T
-        dyd = - self.gamma*np.sum(circ*circ.T*yy_temp.T/rr1, 0).T
+        dxd =  self.gamma*np.sum(circ*circ.T*xx_temp.T/rr1, 0).T
+        dyd =  self.gamma*np.sum(circ*circ.T*yy_temp.T/rr1, 0).T
+        
+        # Gradient dynamics(signs are a little suspect - must test)
+        dxgd, dygd, dxg, dyg = 0, 0, 0, 0
+        if self.tf_profile:
+            x, y = np.array(pos[:,0]), np.array(pos[:, 1])
+            l, dldx, dldy = self.tf_profile(x, y)
+            
+            # contribution from dissipation + gradient
+            dxgd = dldx/l
+            dygd = dldy/l
+            
+            # contribution purely from gradient
+            dxg = dldy/l*np.sign(circ[0, :])
+            dyg = -dldx/l*np.sign(circ[0, :])
+        
         
         # Sum contributions
-        dx = dxc + dxi + dxd
-        dy = dyc + dyi + dyd
+        dx = dxc + dxi + dxd + dxg + dxgd
+        dy = dyc + dyi + dyd + dyg + dygd
 
         return 1/(2*np.pi)*np.hstack((dx[:, np.newaxis], dy[:, np.newaxis]))
 
@@ -455,6 +484,7 @@ class Evolver:
         t_start = t_curr
 
         for steps in np.arange(nsteps):
+            # tqdm.write(f"Mult {h}")
             cpos = self.rk_step(cpos, c_time, h)
             c_time = t_start + steps*h
         return cpos
@@ -500,8 +530,11 @@ class Evolver:
             # This function call also appends a new set of circulations to self.circulations - iff annihilation
             c_pos = self.annihilate(c_pos, i)
             
+            # Is this what stops the simulation..?
+            assert len(c_pos)
+            
             #Spawn. As annihilate() adds a new circulation matrix, spawn() only modifies it
-            c_pos = self.spawn(c_pos, i)
+            # c_pos = self.spawn(c_pos, i)
 
             # Adaptively evolve one timestep forward
             c_pos = self.rk_error_tol(c_pos, i)
@@ -711,6 +744,10 @@ class Evolver:
             'vortices': self.vortices
                 }  
         
+        # TODO: 
+        # Since I moved initial config to Configuration(), we no longer have that data saved. It can usually be inferred from looking
+        # at initial RMS (<r^2> = 2\sigma^2 for (x,y) ~ N(0, \sigma)xN(0, \sigma)), but we'd like to have it available for inspection.
+        
         return data
             
     
@@ -720,7 +757,10 @@ class Evolver:
                                                       self.T, 
                                                       self.annihilation_threshold,
                                                       self.seed,
-                                                      'Evolution')
+                                                      domain_radius = self.domain_radius,
+                                                      gamma = self.gamma,
+                                                      data_type = 'Evolution',
+                                                      conv = 'fresh')
             
         # path = pathlib.Path(fname)
 #        FOR NOW JUST OVERWRITE
@@ -737,7 +777,7 @@ class Evolver:
             
         data = self.get_trajectory_data()
         with open(fname, "wb") as f:
-            pickle.dump(data, f)
+            pickle.dump(data, f, protocol = pickle.HIGHEST_PROTOCOL)
             
 """
 

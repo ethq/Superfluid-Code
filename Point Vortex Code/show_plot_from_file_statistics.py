@@ -29,13 +29,18 @@ lb = (*pvm.Utilities.hex2one('#383535'), 1)
 # fname = 'N30_T500_S144692810'  ### Mixed. Shows that (pure) clusters at least do not follow t/sqrt(t) scaling.
 # fname = 'N40_T500_S517932362' ### Mixed
 
+N = 50
+T = 5015
+R = 2000
+G = 0.3
 
 # Load fnames - use save_metadata.py to get a set of seeds satisfying certain criteria
-seedf = 'Metadata/N50_T500_Mixed.dat'
+seedf = f"Metadata/N{N}_T{T}_Mixed.dat"
 with open(seedf, 'rb') as f:
     seeds = pickle.load(f)
     
-fnames = ['N50_T500_S' + str(s) for s in seeds]
+fnames = [f"N{N}_T{T}_R{R}_G{G}_S" + str(s) for s in seeds]
+print(seeds)
 
 # What are we looking at?
 statistic = 'rmsCluster'
@@ -47,10 +52,9 @@ statistic = 'rmsCluster'
 # statistics = ['rmsCluster', 'rmsClusterNonCentered']
 
 vals = []
-t = 1 + np.arange(50000) #### Assumes all seeds have fixed T = 500, dt = .1
 
 for f in tqdm(fnames):
-    fname_analysis = 'Datafiles/Analysis_' + f + '.dat'    
+    fname_analysis = 'Datafiles/A_' + f + '.dat'    
     # fname_evolution = 'Datafiles/Evolution_' + f + '.dat'
     
     # ef = open(fname_evolution, "rb")
@@ -58,6 +62,10 @@ for f in tqdm(fnames):
             
     # evolution_data = pickle.load(ef)
     analysis_data = pickle.load(af)
+    
+    nl = len(analysis_data['dipoles'])
+    dt = T/nl
+    t = (1 + np.arange(nl))*dt #### Assumes all seeds have fixed T = 500, dt = .1
 
     # settings = evolution_data['settings']
     
@@ -93,13 +101,13 @@ for f in tqdm(fnames):
 cfid = st.t.interval(0.95, len(vals)-1, loc=np.mean(vals, axis = 0), scale=st.sem(vals, axis = 0))
 
 # Plot it
-plt.fill_between(t, cfid[0], cfid[1], zorder = 1e3)
+plt.fill_between(t, cfid[0], cfid[1], zorder = 1e3, alpha = .3)
 
 
 # Get the average
 avg = np.mean(vals, axis = 0).flatten()
 
-plt.plot(t, avg, label = 'Average', color = lb)
+plt.plot(t, avg, label = 'Average', color = lb, zorder = 1e4)
 # plt.legend()
 
 plt.xlabel('Time')

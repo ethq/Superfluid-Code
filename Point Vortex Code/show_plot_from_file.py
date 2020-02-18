@@ -6,6 +6,8 @@ Created on Thu Jan 23 10:42:32 2019
 """
 
 import PVM as pvm
+import os
+import numpy as np
 
 # fname = 'N20_T50_S768390681'
 # fname = 'N20_T50_S457173602'
@@ -26,16 +28,62 @@ import PVM as pvm
 # fname = 'N50_T500_S752728417' ### Mixed
 fname = 'N50_T500_S853514746' ### Mixed
 fname = 'N50_T500_S189428672' ### Mixed
+fname = 'N100_T500_S915560108'
+fname = 'N70_T5000_S920411951'
 
+# fname = 'N70_T300_S87240089'
+# fname = 'N70_T300_S422500560'
+# fname = 'N70_T300_S662417938'
+# fname = 'N70_T2000_S874026731'
+# fname = 'N70_T5000_S41244916'
+fname = 'N100_T508_S955505076'
+fname = 'N100_T508_S943535723'
+
+# fname = 'N100_T5082_S573711462'
+fname = 'N100_T504_S786990155'
+fname = 'N100_T512_S704409062'
+fname = 'N100_T512_S909890148'
+
+
+fname = 'N50_T515_S605700655'
+
+fname = 'N50_T519_S683367893'
+fname = 'N50_T519_S690640270'
+
+fname = 'N50_T520_S711558627'
 
 # fname = 'N30_T500_S550439413' ### Chiral
 
+fname = 'N50_T520_S828427048'
+fname = 'N50_T5_S828427048'
+fname = 'N50_T5000_S828427048'
+
+fname = 'N2_T666_S412311452'
+fname = 'N2_T666_S261883477'
+fname = 'N2_T66_S889078464'
+fname = 'N2_T266_S759875717'
+fname = 'N2_T1066_S264611168'
+fname = 'N50_T5066_S554509817'
+fname = 'N50_T5014_S496387584'
+fname = 'N50_T5014_S496387584'
+fname = 'N50_T5014_S819913311'
 
 plotter = pvm.HarryPlotter(fname)
 
-pc = [pvm.PlotChoice.rmsCluster, pvm.PlotChoice.rmsNonDipoleNonCentered]
-# pc = [pvm.PlotChoice.rmsCluster]
+pc = [pvm.PlotChoice.rmsCluster, 
+      # pvm.PlotChoice.energy
+       pvm.PlotChoice.rmsClusterNonCentered,
+      # pvm.PlotChoice.rmsNonDipole, 
+      # pvm.PlotChoice.rmsNonDipoleNonCentered,
+      # pvm.PlotChoice.numberOfVortices,
+      # pvm.PlotChoice.auto_corr_cluster
+      ]
 
 plotter.plot(pc)
+slideshow = True
 
-# plotter.plot_cfg(percent = 80)
+
+# Save a slideshow
+if slideshow:
+    for i in np.linspace(0, 99, 100):
+        plotter.plot_cfg(percent = i, save = True)

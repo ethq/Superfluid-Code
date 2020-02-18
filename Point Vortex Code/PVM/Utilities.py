@@ -193,4 +193,20 @@ def get_active_vortices(vortices, tid = -np.Infinity):
     mask = [v.is_alive(tid) for v in vortices]
     
     return vortices[mask]
+
+def _test_cart2pol():
+    x0,y0 = -1,0
+    t = [
+        [x0, y0]
+        ]
+    
+    _t = cart2pol(t)
+    
+    print(_t)
+    
+
+
+
+if __name__ == "__main__":
+    _test_cart2pol()
     

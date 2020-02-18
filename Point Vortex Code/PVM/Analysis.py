@@ -87,7 +87,7 @@ class Analysis:
             }):
         
         if fname:
-            fname = 'Datafiles/Evolution_' + fname + '.dat'
+            fname = 'Datafiles/E_' + fname + '.dat'
             with open(fname, "rb") as f:
                 data = pickle.load(f)                
         else:
@@ -1013,10 +1013,13 @@ class Analysis:
                                                   self.settings['T'], 
                                                   self.settings['annihilation_threshold'], 
                                                   self.settings['seed'],
-                                                  'Analysis')
+                                                  domain_radius = self.settings['domain_radius'],
+                                                  gamma = self.settings['gamma'],
+                                                  conv = 'fresh',
+                                                  data_type = 'Analysis')
         
-        path = pathlib.Path(fname)
-        resave = ''
+        # path = pathlib.Path(fname)
+        # resave = ''
 #         FOR NOW JUST OVERWRITE
 #        if path.exists() and path.is_file():
 #            resave = input("The file has already been analyzed. Do you wish to overwrite? [y/n]")
@@ -1033,10 +1036,10 @@ class Analysis:
         data = self.get_data( debug = False )
         
         with open(fname, "wb") as f:
-            pickle.dump(data, f)
+            pickle.dump(data, f, protocol = pickle.HIGHEST_PROTOCOL)
         
-        if resave != '':
-            print('New analysis saved.')
+        # if resave != '':
+            # print('New analysis saved.')
     
     
 if __name__ == '__main__':

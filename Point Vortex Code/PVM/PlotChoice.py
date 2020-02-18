@@ -30,8 +30,12 @@ class PlotChoice:
     energyPerVortex = 'energyPerVortex'
     dipoleMoment = 'dipoleMoment'
     rmsCluster = 'rmsCluster'
+    rmsNonDipole = 'rmsNonDipole'
+    rmsClusterNonCentered = 'rmsClusterNonCentered'
     rmsNonDipoleNonCentered = 'rmsNonDipoleNonCentered'
     rmsFirstVortex = 'rmsFirstVortex'
+    
+    auto_corr_cluster = 'auto_corr_cluster'
     
     energyImageReal = 'energyImageReal'
     smallestDistance = 'smallestDistance'
@@ -74,8 +78,11 @@ class PlotChoice:
             PlotChoice.numberOfVortices,
             PlotChoice.energyPerVortex,
             PlotChoice.rmsCluster,
+            PlotChoice.rmsNonDipole,
+            PlotChoice.rmsClusterNonCentered,
             PlotChoice.rmsNonDipoleNonCentered,
             PlotChoice.rmsFirstVortex,
             PlotChoice.energyImageReal,
-            PlotChoice.smallestDistance
+            PlotChoice.smallestDistance,
+            PlotChoice.auto_corr_cluster
             ]

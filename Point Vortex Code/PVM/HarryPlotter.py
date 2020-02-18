@@ -15,6 +15,7 @@ from tqdm import tqdm
 import collections
 import pickle
 import pathlib
+import os
 
 from .Utilities import pol2cart, cart2pol, eucl_dist, get_active_vortices, get_active_vortex_cfg, get_vortex_by_id, hex2one
 from .Vortex import Vortex
@@ -38,39 +39,43 @@ class HarryPlotter:
         
         # If file passed, we set this variable to that eventual saving is done using the same convention
         self.fname = None
+        self.analysis_data = None
+        self.evolution_data = None
         
         # If filename is given, read it
         if fname:
-            fname_evolution = 'Datafiles/Evolution_' + fname + '.dat'
-            fname_analysis = 'Datafiles/Analysis_' + fname + '.dat'
+            fname_evolution = 'Datafiles/E_' + fname + '.dat'
+            fname_analysis = 'Datafiles/A_' + fname + '.dat'
             
-            ef = open(fname_evolution, "rb")
-            af = open(fname_analysis, "rb")
+            # Attempt to open evolution file.
+            af, ef = None, None
+            try:
+                ef = open(fname_evolution, "rb")
+            except IOError:
+                print(f"File {fname_evolution} not found.")
+                
+            try:
+                af = open(fname_analysis, 'rb')
+            except IOError:
+                print(f"File {fname_analysis} not found.")
             
-            evolution_data = pickle.load(ef)
-            analysis_data = pickle.load(af)
+            if ef:
+                evolution_data = pickle.load(ef)
+                self.settings = evolution_data['settings']
+                self.n_steps = self.settings['n_steps']
+                self.vortices = evolution_data['vortices']
+                self.trajectories = evolution_data['trajectories']
+                self.circulations = evolution_data['circulations']
+                ef.close()
+            if af:
+                analysis_data = pickle.load(af)
+                self.analysis_data = analysis_data
+                self.dipoles = analysis_data['dipoles']
+                self.clusters = analysis_data['clusters']
+                self.energies = analysis_data['energies']
+                af.close()
             
-            # If saving animation and file is passed, make sure to save using the same convention
-            self.fname = 'Animations/' + fname + '.mp4'
-            
-        
-        
-        # Otherwise, we assume data has been passed directly
-        self.settings = evolution_data['settings']
-        self.vortices = evolution_data['vortices']
-        self.trajectories = evolution_data['trajectories']
-        self.circulations = evolution_data['circulations']
-        self.dipoles = analysis_data['dipoles']
-        self.clusters = analysis_data['clusters']
-        self.energies = analysis_data['energies']
-        self.energies2 = np.array(analysis_data['energies2'])
-        
-        # Remembering to close the files
-        if fname:
-            ef.close()
-            af.close()
-            
-        self.n_steps = self.settings['n_steps']
+
         
         # Set colours
         [setattr(self, k, v) for k,v in Conventions.colour_scheme().items()]
@@ -81,91 +86,126 @@ class HarryPlotter:
                 'cluster_vortex': 's'
                 }
         
-        # IMPORTANT:
-        # When Harry is plotting, he loops over data even if it contains only one line object. So, use data = [data] in this case.        
-        self.ax_props = {
-                PlotChoice.energy: 
-                    {
-                        'title': 'Energy deviation',
-                        'xlabel': 'Frame',
-                        'ylabel': 'Deviation',
-                        'labels': ['Energy deviation'],
-                        'lines': 1,
-                        'data': [analysis_data['energies']]
-                    },
-                PlotChoice.energyImageReal:
-                    {
-                        'title': 'Energy differentials (centered)',
-                        'xlabel': 'Frame',
-                        'ylabel': 'Differential',
-                        'labels': ['Images', 'Real'],
-                        'lines': 2,
-                        # 'data': [self.energies2[:, 1] - np.mean(self.energies2[0, 1]), self.energies2[:, 0] - np.mean(self.energies2[0, 0])]   # (1580, 480)
-                    },
-                PlotChoice.dipoleMoment:
-                    {
-                        'title': 'Dipole moment',
-                        'xlabel': 'Frame',
-                        'ylabel': 'Deviation',
-                        'labels': ['Dipole moment'],
-                        'lines': 1
-                    },
-                PlotChoice.numberOfVortices:
-                    {
-                        'title': 'Number of vortices',
-                        'xlabel': 'Frame',
-                        'ylabel': 'Count',
-                        'labels': ['Total', 'Dipoles', 'Clusters', 'Free'],
-                        'lines': 4,
-                        'data': [np.array(analysis_data['n_total']), np.array(analysis_data['n_dipole']), np.array(analysis_data['n_cluster']), 
-                                 np.array(analysis_data['n_total']) - np.array(analysis_data['n_dipole']) - np.array(analysis_data['n_cluster'])]
-                    },
-                PlotChoice.rmsCluster:
-                    {
-                        'title': 'RMS distance in clusters',
-                        'xlabel': 'Frame',
-                        'ylabel': 'RMS distance',
-                        'labels': ['RMS distance'],
-                        'lines': 1,
-                        'data': [[np.sqrt(np.sum(d)) for d in analysis_data['rmsCluster']]]
-                    },
-                PlotChoice.rmsNonDipoleNonCentered:
-                    {
-                         'title': 'RMS distance in non-dipoles, relative to initial positions',
-                         'xlabel': 'Frame',
-                         'ylabel': 'RMS distance',
-                         'labels': ['RMS distance'],
-                         'lines': 1,
-                          'data': [[np.sqrt(np.sum(d)) for d in analysis_data['rmsNonDipoleNonCentered']]]
-                    },
-                PlotChoice.rmsFirstVortex:
-                    {
-                          'title': "RMS distance for zero vortex",
-                          'xlabel': 'Frame',
-                          'ylabel': 'RMS distance',
-                          'labels': ['RMS distance'],
-                          'lines': 1,
-                           'data': [analysis_data['rmsFirstVortex']]
-                    },
-                PlotChoice.energyPerVortex:
-                    {
-                          'title': 'Energy per vortex',
-                          'xlabel': 'Frame',
-                          'ylabel': 'Energy',
-                          'labels': ['Energy per vortex'],
-                          'lines': 1
-                    },
-                PlotChoice.smallestDistance:
-                    {
+        
+     
+    """
+    IMPORTANT NOTE:
+        - data is expected to be served in array, one for each line object. Thus even if 
+          lines == 1, data = [data]
+    TODO: allow both somehow? or does that make the interface less consistent <=> worse?
+    """
+    def get_axe_props(self, pc):
+        d = self.analysis_data
+        if pc == PlotChoice.smallestDistance:
+            return  {
                         'title': 'Smallest distance',
                         'xlabel': 'Frame',
                         'ylabel': 'Distance',
                         'labels': ['<Empty>'],
                         'lines': 1,
-                        'data': [analysis_data['smallestDistance']]
+                        'data': [d['smallestDistance']]
                     }
-                }
+        elif pc == PlotChoice.auto_corr_cluster:
+            return  {
+                         'title': 'Cluster autocorrelation',
+                         'xlabel': 'Frame',
+                         'ylabel': 'Autocorr',
+                         'labels': ['autocorr'],
+                         'lines': 1,
+                          'data': [np.array(d['auto_corr_cluster'])/np.array(d['n_cluster'])]
+                    }
+        elif pc == PlotChoice.energyPerVortex:
+            return {
+                          'title': 'Energy per vortex',
+                          'xlabel': 'Frame',
+                          'ylabel': 'Energy',
+                          'labels': ['Energy per vortex'],
+                          'lines': 1
+                    }
+        elif pc == PlotChoice.rmsFirstVortex:
+            return {
+                        'title': "RMS distance for zero vortex",
+                        'xlabel': 'Frame',
+                        'ylabel': 'RMS distance',
+                        'labels': ['RMS distance'],
+                        'lines': 1,
+                         'data': [d['rmsFirstVortex']]
+                    }
+        elif pc == PlotChoice.rmsNonDipoleNonCentered:
+            return  {
+                         'title': 'Noncentered nondipole RMS',
+                         'xlabel': 'Frame',
+                         'ylabel': 'RMS distance',
+                         'labels': ['RMS distance'],
+                         'lines': 1,
+                         'data': [[np.sqrt(np.mean(dv)) for dv in d['rmsNonDipoleNonCentered']]]
+                    }
+        elif pc == PlotChoice.rmsNonDipole:
+            return  {
+                         'title': 'Centered nondipole RMS',
+                         'xlabel': 'Frame',
+                         'ylabel': 'RMS distance',
+                         'labels': ['CND distance'],
+                         'lines': 1,
+                          'data': [[np.sqrt(np.mean(dv)) for dv in d['rmsNonDipole']]]
+                    }
+        elif pc == PlotChoice.rmsClusterNonCentered:
+            return                     {
+                         'title': 'Noncentered cluster RMS',
+                         'xlabel': 'Frame',
+                         'ylabel': 'RMS distance',
+                         'labels': ['NCC distance'],
+                         'lines': 1,
+                          'data': [[np.sqrt(np.mean(dv)) for dv in d['rmsClusterNonCentered']]]
+                    }
+        elif pc == PlotChoice.rmsCluster:
+            return                     {
+                        'title': 'RMS distance in clusters',
+                        'xlabel': 'Frame',
+                        'ylabel': 'RMS distance',
+                        'labels': ['RMS distance'],
+                        'lines': 1,
+                        'data': [[np.sqrt(np.mean(dv)) for dv in d['rmsCluster']]]
+                    }
+        elif pc == PlotChoice.numberOfVortices:
+            return                     {
+                        'title': 'Number of vortices',
+                        'xlabel': 'Frame',
+                        'ylabel': 'Count',
+                        'labels': ['Total', 'Dipoles', 'Clusters', 'Free'],
+                        'lines': 4,
+                        'data': [np.array(d['n_total']), np.array(d['n_dipole']), np.array(d['n_cluster']), 
+                                 np.array(d['n_total']) - np.array(d['n_dipole']) - np.array(d['n_cluster'])]
+                    }
+        elif pc == PlotChoice.dipoleMoment:
+            return                     {
+                        'title': 'Dipole moment',
+                        'xlabel': 'Frame',
+                        'ylabel': 'Deviation',
+                        'labels': ['Dipole moment'],
+                        'lines': 1,
+                        'data': [d['dipoleMoment']]
+                    }
+        elif pc == PlotChoice.energyImageReal:
+            return {
+                        'title': 'Energy differentials (centered)',
+                        'xlabel': 'Frame',
+                        'ylabel': 'Differential',
+                        'labels': ['Images', 'Real'],
+                        'lines': 2,
+                        'data': [d['energies2'][:, 1] - np.mean(d['energies2'][0, 1]), d['energies2'][:, 0] - np.mean(d['energies2'][0, 0])]
+                    }
+        elif pc == PlotChoice.energy:
+            return {
+                        'title': 'Energy deviation',
+                        'xlabel': 'Frame',
+                        'ylabel': 'Deviation',
+                        'labels': ['Energy deviation'],
+                        'lines': 1,
+                        'data': [d['energies']]
+                    }
         
+    
     """
     
     choice:      [Array] expected to consist of PlotChoice elements
@@ -180,7 +220,7 @@ class HarryPlotter:
         axes = [f.add_subplot(len(choice), 1, i) for c, i in zip(choice, 1+np.arange(len(choice)))]
         
         for i in np.arange(len(choice)):
-            prop = self.ax_props[choice[i]]
+            prop = self.get_axe_props( choice[i] )
             axes[i].set_title(prop['title'])
             axes[i].set_xlabel(prop['xlabel'])
             axes[i].set_ylabel(prop['ylabel'])
@@ -195,10 +235,15 @@ class HarryPlotter:
         plt.show()
     
     
-    def _plot_cfg_t(self, i):
+    def _plot_cfg_t(self, i, save = False):
         cfg = get_active_vortex_cfg(self.vortices, i)
         pos = cfg['positions']
         ids = cfg['ids']
+        
+        # If analysis data not available, plot "naked" vortices.
+        if not hasattr(self, 'dipoles'):
+            self.plot_cfg(pos)
+            return
         
         # TODO Could actually be replaced by an indexof call:
         # we get id from dipoles/clusters, then indexof, use it for pos
@@ -211,7 +256,7 @@ class HarryPlotter:
         # Create figure
         f = plt.figure()
         ax = f.add_subplot(111, projection = 'polar')
-        ax.grid(False)
+        # ax.grid(False)
 
         # Plot dipoles first
         
@@ -265,9 +310,16 @@ class HarryPlotter:
 
             ax.plot(theta, r, marker = marker, ls='', markeredgecolor = 'black', markeredgewidth='1', markerfacecolor = self.vortex_colours[v.circ], zorder = 1e3) 
             
-        ax.set_title(f"Vortex configuration, seed: {self.settings['seed']}")
-        f.show()
-    
+        ax.set_title(f"Vortex configuration, time: {i/len(self.dipoles)}")
+        
+        if save:
+            if not os.path.exists(f"Plots/{self.settings['seed']}"):
+                os.makedirs(f"Plots/{self.settings['seed']}")
+            f.savefig(f"Plots/{self.settings['seed']}/{1000*i/len(self.dipoles)}.png")
+        else:
+            f.show()
+        
+        plt.close('all')
     """
     
     TODO: Make this use analysis data, e.g. plot cluster lines etc
@@ -275,15 +327,16 @@ class HarryPlotter:
         A dictionary with keys 'positions', 'circulations' and 'ids'. 'ids' are not used and may be left empty.
     
     """
-    def plot_cfg(self, cfg = None, time = -1, percent = -1):
+    def plot_cfg(self, cfg = None, time_ = -1, percent = -1, save = False):
         # Plot using own data:
         if not cfg:
             if percent >= 0:
-                time = int(np.floor( percent/100*len(self.energies) ))
+                time_ = int(np.floor( percent/100*len(self.trajectories) ))
             
             # If no config passed, we should have some non-negative time
-            assert time != -1
-            self._plot_cfg_t(time)
+            assert time_ != -1
+            print(f'Plotting configuration at time {time_}')
+            self._plot_cfg_t(time_, save)
             return
         
         plt.figure()

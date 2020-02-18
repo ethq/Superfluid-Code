@@ -7,6 +7,7 @@ Created on Thu Jan 23 14:09:59 2020
 
 import numpy as np
 from PVM.Utilities import pol2cart, cart2pol
+import pickle
 
 class CONFIG_STRAT:
     UNIFORM = 'uniform'
@@ -14,8 +15,9 @@ class CONFIG_STRAT:
     OFFCENTER_2 = 'offcenter_2'
     OPPOSITE_2 = 'opposite_2'
     SINGLE_CLUSTER = 'single_cluster'
-    SINGLE_VORTEX_IN_CLOUD = 'single_vortex_in_cloud',
+    SINGLE_VORTEX_IN_CLOUD = 'single_vortex_in_cloud'
     EDGE_6 = 'edge_6'
+    DIPOLE_AND_CLUSTER = 'dipole_and_cluster'
     
     CIRCS_ALL_POSITIVE = 'circs_all_positive'
     CIRCS_ALL_BUT_ONE_POSITIVE = 'circs_all_but_one_positive'
@@ -34,17 +36,24 @@ class Configuration:
     max_attempts: [Integer] will try to generate a configuration this many times. default failure condition:
                             vortex outside domain.
     params:     [Dictionary] extra parameters if needed for a certain strategy
+    fname: [String] name of an evolved file. loads last configuration.
     validation_options:  [Dictionary] 
     """
     def __init__(self,
-                 n,
-                 r,
-                 coord_strategy,
-                 circ_strategy,
+                 n = -1,
+                 r = -1,
+                 coord_strategy = None,
+                 circ_strategy = None,
                  seed = None,
                  params = {},
                  validation_options = {},
-                 max_attempts = 1000):
+                 max_attempts = 1000,
+                 fname = None):
+        
+        # Load file if specified
+        if fname:
+            self.load(fname)
+            return
         
         self.n_vortices = n
         self.domain_radius = r
@@ -80,6 +89,13 @@ class Configuration:
         getattr(self, circ_strategy)(params)
         self.format_circulation()
         
+    def load(self, fname):
+        fname = "E_" + fname + '.dat'
+        with open(fname, "rb") as f:
+            data = pickle.load(f)   
+        
+        self.pos = data.trajectories[-1]
+        self.circulations = data.circulations[-1]
       
     """
     p:     [Dictionary] Must contain keys:
@@ -101,6 +117,12 @@ class Configuration:
         # Second index is (x, y)
         self.pos = np.hstack((pol2cart(r,theta)))
     
+    
+    """
+    generates a dipole and a small cluster, far separat
+    """
+    def dipole_and_cluster(self, p):
+        pass
     
     """
     p:     [Dictionary] Must contain keys:
@@ -133,11 +155,11 @@ class Configuration:
         self.pos = np.hstack((c+dx, dy))
     
     def offcenter_2(self, p):
-        self.pos = np.array([[0.5*np.cos(np.pi/4), 0.5*np.cos(np.pi/4)],
-                                       [0.5*np.cos(np.pi), 0.5*np.sin(np.pi)]])
+        self.pos = np.array([[15*np.cos(np.pi/4), 15*np.cos(np.pi/4)],
+                                       [15*np.cos(np.pi), 15*np.sin(np.pi)]])
     
     def opposite_2(self, p):
-        self.pos = np.array([[.7, 0], [-.7, 0]])
+        self.pos = np.array([[15, 0], [-15, 0]])
     
     
     """
@@ -206,27 +228,6 @@ class Configuration:
         c = np.ones(self.n_vortices)
         h = self.n_vortices // 2
         c[:h] = -1
-        
-#        c[0] = -1
-#        c[1] = 1
-#        c[2] = -1
-#        c[3] = -1
-#        c[4] = -1
-#        c[5] = -1
-#        c[6] = 1
-#        c[7] = -1
-#        c[8] = -1
-#        c[9] = 1
-#        c[10] = 1
-#        c[11] = -1
-#        c[12] = -1
-#        c[13] = 1
-#        c[14] = 1
-#        c[15] = 1
-#        c[16] = 1
-#        c[17] = -1
-#        c[18] = 1
-#        c[19] = 1
         
         self.circ = c
     
