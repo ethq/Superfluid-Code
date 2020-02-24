@@ -13,7 +13,7 @@ import numpy as np
 n_vortices = 50
 domain_radius = 2000
 annihilate_at_radius = 1988
-T = 5015
+T = 5000
 
 params = {
         'center': [1e-4, 1e-4],
@@ -57,10 +57,10 @@ cfg = pvm.Configuration(
 
 ev_config = {
     'n_vortices': n_vortices,
-    'dt': .1,
+    'dt': 1,
     'domain_radius': domain_radius,
     'annihilate_at_radius': annihilate_at_radius,
-    'gamma': .3,
+    'gamma': 0.05,
     'T': T,
     'spawn_rate': 0,
     'cfg': cfg
@@ -84,9 +84,9 @@ to_analyze = [
     pvm.ANALYSIS_CHOICE.RMS_NON_DIPOLE_CENTERED,
     pvm.ANALYSIS_CHOICE.RMS_NON_DIPOLE_NON_CENTERED,
     # pvm.ANALYSIS_CHOICE.PAIR_CORR_W,
-    pvm.ANALYSIS_CHOICE.AUTO_CORR,
+    # pvm.ANALYSIS_CHOICE.AUTO_CORR,
     # pvm.ANALYSIS_CHOICE.AUTO_CORR_NON_DIPOLE,
-    pvm.ANALYSIS_CHOICE.PAIR_CORR,
+    # pvm.ANALYSIS_CHOICE.PAIR_CORR,
     # pvm.ANALYSIS_CHOICE.DIPOLE_MOMENT
     ]
 

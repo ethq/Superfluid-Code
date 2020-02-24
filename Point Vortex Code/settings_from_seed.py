@@ -19,7 +19,9 @@ from os import listdir
 pd.set_option('display.float_format', lambda x: '%.3f' % x)
 
 ### Seed to look at
-seed = 920411951#428814872#890486217
+seed = 465186772
+# E_N50_T5014_S496387584
+
 
 # Enumerate all files
 # Select all analysis with N50_T500 with mixed (even) signs
@@ -30,7 +32,6 @@ matches = []
 for f in files:
     # Pick out only evolution files, then seeds are automatically unique 
     expr = f"E_N[0-9]+_T[0-9]+_S{seed}\.dat"
-    expr2 = f"E_N[0-9]+_T[0-9]+_R[0-9]+G_[0-9]+.[0-9]+_S[0-9]+"
     m = re.search(expr, f)
     
     if m:

@@ -22,6 +22,7 @@ from .Vortex import Vortex
 from .PlotChoice import PlotChoice
 from .Conventions import Conventions
 
+from sklearn.preprocessing import MinMaxScaler
 
 """
 
@@ -95,6 +96,8 @@ class HarryPlotter:
     TODO: allow both somehow? or does that make the interface less consistent <=> worse?
     """
     def get_axe_props(self, pc):
+        # mmscaler = MinMaxScaler()
+        
         d = self.analysis_data
         if pc == PlotChoice.smallestDistance:
             return  {
@@ -105,6 +108,16 @@ class HarryPlotter:
                         'lines': 1,
                         'data': [d['smallestDistance']]
                     }
+        elif pc == PlotChoice.auto_corr:
+            return  {
+                         'title': 'Autocorrelation',
+                         'xlabel': 'Frame',
+                         'ylabel': 'Autocorr',
+                         'labels': ['autocorr'],
+                         'lines': 1,
+                          'data': [np.array(d['auto_corr'])/np.array(d['n_total'])]
+                    }
+        
         elif pc == PlotChoice.auto_corr_cluster:
             return  {
                          'title': 'Cluster autocorrelation',
@@ -159,13 +172,15 @@ class HarryPlotter:
                           'data': [[np.sqrt(np.mean(dv)) for dv in d['rmsClusterNonCentered']]]
                     }
         elif pc == PlotChoice.rmsCluster:
+            rmsCluster = np.array([np.sqrt(np.mean(dv)) for dv in d['rmsCluster']])
+            data = rmsCluster
             return                     {
                         'title': 'RMS distance in clusters',
                         'xlabel': 'Frame',
                         'ylabel': 'RMS distance',
                         'labels': ['RMS distance'],
                         'lines': 1,
-                        'data': [[np.sqrt(np.mean(dv)) for dv in d['rmsCluster']]]
+                        'data': [data]
                     }
         elif pc == PlotChoice.numberOfVortices:
             return                     {
@@ -225,10 +240,20 @@ class HarryPlotter:
             axes[i].set_xlabel(prop['xlabel'])
             axes[i].set_ylabel(prop['ylabel'])
             
+            
             for j in np.arange(prop['lines']):
+                # Assuming we plot only temporal data, use a scale where x ~ y
+                t = np.linspace(1e-10, np.max(prop['data'][j]), len(prop['data'][j]))
+                
+                # True time
+                true_t = np.linspace(1e-10, len(prop['data'][j]), len(prop['data'][j]))*self.settings['dt']
+                
                 label = prop['labels'][j]
                 data = prop['data'][j]
-                axes[i].plot(data, label = label)
+                
+                axes[i].plot(true_t, data, label = label)
+                axes[i].plot(true_t, t)
+                axes[i].set_ylim([0, np.max(prop['data'][j])])
             
             if j >= 1:
                 axes[i].legend()
@@ -309,7 +334,7 @@ class HarryPlotter:
                 marker = 's'
 
             ax.plot(theta, r, marker = marker, ls='', markeredgecolor = 'black', markeredgewidth='1', markerfacecolor = self.vortex_colours[v.circ], zorder = 1e3) 
-            
+        # ax.set_ylim([0, 230])
         ax.set_title(f"Vortex configuration, time: {i/len(self.dipoles)}")
         
         if save:
@@ -350,6 +375,13 @@ class HarryPlotter:
         
         for i, p in enumerate(pos):
             plt.plot(p[0], p[1], mark[c[i]], color = colors[c[i]])
+            
+        show_domain = True
+        if show_domain:
+            R = 2
+            t = np.linspace(0, 2*np.pi, 1000)
+            x,y = R*np.cos(t), R*np.sin(t)
+            plt.plot(x, y)
             
         plt.tight_layout()
         plt.show()

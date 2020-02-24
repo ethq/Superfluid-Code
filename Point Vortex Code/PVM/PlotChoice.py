@@ -35,7 +35,9 @@ class PlotChoice:
     rmsNonDipoleNonCentered = 'rmsNonDipoleNonCentered'
     rmsFirstVortex = 'rmsFirstVortex'
     
+    auto_corr = 'auto_corr'
     auto_corr_cluster = 'auto_corr_cluster'
+    auto_corr_nondipole = 'auto_corr_nondipole'
     
     energyImageReal = 'energyImageReal'
     smallestDistance = 'smallestDistance'
@@ -84,5 +86,7 @@ class PlotChoice:
             PlotChoice.rmsFirstVortex,
             PlotChoice.energyImageReal,
             PlotChoice.smallestDistance,
-            PlotChoice.auto_corr_cluster
+            PlotChoice.auto_corr_cluster,
+            PlotChoice.auto_corr,
+            PlotChoice.auto_corr_nondipole
             ]

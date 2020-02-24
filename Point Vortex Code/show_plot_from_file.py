@@ -68,18 +68,26 @@ fname = 'N50_T5014_S496387584'
 fname = 'N50_T5014_S496387584'
 fname = 'N50_T5014_S819913311'
 
+fname = 'N50_T5015_R2000_G0.1_S532745994'
+
+# fname = 'N50_T15000_R2000_G0_S858518372'
+fname = 'N50_T15000_R2000_G0_S907960698'
+fname = 'N50_T35000_R2000_G0_S554620699'
+
 plotter = pvm.HarryPlotter(fname)
 
 pc = [pvm.PlotChoice.rmsCluster, 
-      # pvm.PlotChoice.energy
-       pvm.PlotChoice.rmsClusterNonCentered,
+       # pvm.PlotChoice.energy
+       # pvm.PlotChoice.rmsClusterNonCentered,
       # pvm.PlotChoice.rmsNonDipole, 
       # pvm.PlotChoice.rmsNonDipoleNonCentered,
       # pvm.PlotChoice.numberOfVortices,
-      # pvm.PlotChoice.auto_corr_cluster
+       # pvm.PlotChoice.auto_corr,
+       # pvm.PlotChoice.auto_corr_cluster,
+       # pvm.PlotChoice.auto_corr_nondipole
       ]
 
-plotter.plot(pc)
+# plotter.plot(pc)
 slideshow = True
 
 

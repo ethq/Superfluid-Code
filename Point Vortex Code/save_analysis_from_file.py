@@ -12,16 +12,6 @@ import pickle
 
 # Assumes the seed has been evolved
 
-# names =  [
-    # 'N20_T10_S851125867',
-#     'N30_T500_S144692810',
-#     'N40_T500_S517932362'
-        # ]
-
-# names = ['N50_T999_S840620860']
-
-# seeds = []
-
 # seedf = 'Metadata/N100_T999_Mixed.dat'
 # with open(seedf, 'rb') as f:
 #     seeds = pickle.load(f)
@@ -52,7 +42,7 @@ import pickle
     
 # If analysis complete, evolve & run new seeds.
     
-N = 20
+N = 30
 i = 0
 
 ## Note, subprocess returns only when process is complete. So we don't run 50 concurrent evolutions.

@@ -30,7 +30,7 @@ def image_pos(pos, R):
    
     # .. and image position
     impos = R**2*pos/r2
-    
+  
     return impos
 
 class Vortex:

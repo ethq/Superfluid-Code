@@ -71,7 +71,7 @@ def calc_dist_mesh(pos, domain_radius, n_vortices):
     # generate mesh of image positions
     xvec_im_mesh, yvec_im_mesh = np.meshgrid(domain_radius**2*xvec/(xvec**2 + yvec**2), domain_radius**2*yvec/(xvec**2 + yvec**2))
 
-    # temp variables for calcing distance between voritces and between voritces & images
+    # temp variables for calcing distance between vortices and between vortices & images
     yy_temp = yvec_mesh - yvec_mesh.T
     xx_temp = xvec_mesh.T - xvec_mesh
     
@@ -829,57 +829,84 @@ class Evolver_MCMC:
         self.hooks = hooks
         
         # Set up initial vortex positions and vortex image positions
-        self.initial_positions = pos
-        self.circulations = circs
+        self.pos = pos
+        self.impos = np.array([image_pos(p, self.domain_radius) for p in pos])
+        self.circs = circs[0]
+        self.circs2 = self.circs.T * self.circs
         
-        # Get initial energies
-        self.energy = [self.get_energy(i) for i in np.arange(n_vortices)]
+        self.energy = self.get_energy()
+        self.angular = self.get_angular()
         
-        # Get initial angular momenta
-        self.angular = [self.get_angular(i) for i in np.arange(n_vortices)]
-        
-        # Maybe don't need this crap. Just update single-energies, sum H at end of sweep
-        # In that case move it back into Evolver class
-        
-#        self.mesh = calc_dist_mesh(self.pos0, self.domain_radius, self.n_vortices)
-#        self.rr1, self.rr2 = self.mesh[4], self.mesh[5]
+        self.energeia = [self.get_energy_old(i) for i, _ in enumerate(self.pos)]
+        self.angulara = [self.get_angular_old(i) for i, _ in enumerate(self.pos)]
     
     def evolve(self):
         # Record accepted moves
-        acc = 0
+        acc = 0. # Taken relative to vortex number
         
         # Record energy history
-        
         H = []
-        H.append(np.sum(self.energy))
         
-        for i in tqdm(np.arange(self.total_steps)):
-            acc = acc + self.sweep()
-            
-            H.append(np.sum(self.energy))
+        for i in np.arange(self.total_steps):
+            ac, h = self.sweep()
+            acc = acc + ac
+            H.append(h)
             
         self.energy_history = H
+        self.accepted = acc
+        self.accepted_rel = acc/self.total_steps/self.n_vortices*100
     
-    def get_angular(self, i):
+    def get_angular(self):
+        a = 0
+        for i, p in enumerate(self.pos):
+            a = a + np.dot(p, p)*self.circs[i]
+        return a
+    
+    # Faulty - fails to compute several offdiagonal energies. Better to sum entire thing, 
+    # which gives an overcount factor of 1/2 which we do not care about
+    def get_energy(self):
+        mesh = calc_dist_mesh(self.pos, self.domain_radius, self.n_vortices)
+        rr1, rr2 = mesh[4], mesh[5]
+        # Energy from interaction between vortices
+        
+        # Remove self-energies
+        np.fill_diagonal(rr1, 1)
+        
+        hr = np.sum(self.circs2*np.log(rr1))
+        
+        # Energy from interaction between vortices & images
+        hi = -np.sum(self.circs2*np.log(rr2))
+        
+        return hr + hi
+    
+    def get_angular_old(self, i):
         return np.dot(self.pos[i], self.pos[i])*self.circs[i]
     
-    def get_energy(self, vortex_id):
+    # Updates the energy associated with a single vortex
+    def get_energy_old(self, vortex_id):
         # Target circulation
         g0 = self.circs[vortex_id]
         
         # Distance to all other vortices(self included)
         rr1 = np.linalg.norm(self.pos - self.pos[vortex_id], axis = 1)
         
-        # Set self-energy to zero(we don't want to count it)
+        # Set self-energy to zero(we don't want to count it) (the energy is log rr1, hence rr1 = 1 => energy is zero)
         rr1[vortex_id] = 1
         
         # Distance to all images
         rr2 = np.linalg.norm(self.impos - self.pos[vortex_id], axis = 1)
         
-        # Add in circulations
-        Hi = -g0*np.sum(np.log(rr1)*self.circs)/np.pi + g0*np.sum(np.log(rr2)*self.circs)/np.pi
+        # Distance from all vortices to new image
+        rr3 = np.linalg.norm(self.impos[vortex_id] - self.pos, axis = 1)
         
-        return Hi
+        # Don't overcount self-selfimage contribution
+        rr3[vortex_id] = 1
+        
+        h1 = -np.sum(np.log(rr1)*g0*self.circs)
+        h2 = np.sum(np.log(rr2*np.linalg.norm(self.impos, axis = 1))*g0*self.circs)
+        h3 = np.sum(np.log(rr3*np.linalg.norm(self.pos[vortex_id]))*g0*self.circs)
+        
+        return h1+h2+h3
     
     
     """
@@ -906,14 +933,10 @@ class Evolver_MCMC:
         acc_ctr = 0
         
         # Attempt to move each vortex in-place at the current frame. 
-        for i in v_tar:            
-            # Energy of vortex prior to moving it
-            energy_old = self.energy[i]
-            angular_old = self.angular[i]
-            
+        for i in v_tar:                        
             # Attempt to move vortex
             
-            # Generate displacements from uniform distribution, center on zero and scale to boundingbox
+            # Generate displacements from uniform distribution, center on zero and scale to bounding box
             dr = self.bbox*(np.random.rand(2) - 1/2)
             
             # Reflect if necessary
@@ -922,6 +945,7 @@ class Evolver_MCMC:
             # Else just add displacement
             else:
                 new_pos = self.pos[i] + dr
+                new_impos = image_pos(new_pos, self.domain_radius)
             
             # Check for move legality. In particular we do not accept if we are within another vortex core
             legal = True
@@ -935,13 +959,21 @@ class Evolver_MCMC:
                 continue
             
             # Move good so far, attempt to go through with it
-            # Store old in case of rejection
-            old_pos = self.pos[i]
-            self.pos[i] = new_pos
             
-            # Energy and angular momentum of vortex after moving it
-            energy_new = self.get_energy(i)
-            angular_new = self.get_angular(i)
+            # Energy of vortex prior to moving it
+            energy_old = self.energeia[i]
+            angular_old = self.angulara[i]
+            
+            # Store old in case of rejection
+            old_pos_r = self.pos[i].copy() # Remember to copy....... otherwise old_pos_r
+            old_pos_i = self.impos[i].copy() # will be modified as well
+            self.pos[i] = new_pos
+            self.impos[i] = new_impos
+            
+            # Energy and angular momentum of vortex after moving it 
+            # Actually... moving the vortex moves its image => some image energies must be recalculated too.
+            energy_new = self.get_energy_old(i)
+            angular_new = self.get_angular_old(i)
             
             # Energy change
             delta_E = energy_new - energy_old
@@ -949,7 +981,7 @@ class Evolver_MCMC:
             # Angular momentum change
             delta_A = np.abs(angular_old - angular_new)
             
-            # Rejection sampling. 
+            # Rejection sampling
             accept = True
             
             # First check the energy change. Note that if delta_E <= 0, exp >= 1 and we always accept
@@ -959,15 +991,18 @@ class Evolver_MCMC:
             # Then check the second moment of vorticity(ie. angular momentum). Should be conserved.
             if delta_A > vort_tol:
                 accept = False
+                # Note: this is by far the largest cause of failed steps, since 
+                # randomly moving a vortex is unlikely to conserve angular momentum
             
             # Update energy if all good. Otherwise restore old state
             if accept:
-                self.energy[i] = energy_new
-                self.angular[i] = angular_new
+                self.energeia[i] = energy_new
+                self.angulara[i] = angular_new
                 acc_ctr = acc_ctr + 1
             # Reject. Restore old position
             else:
-                self.pos[i] = old_pos
+                self.pos[i] = old_pos_r
+                self.impos[i] = old_pos_i
                 
-        return acc_ctr/self.n_vortices
+        return acc_ctr, energy_new
 

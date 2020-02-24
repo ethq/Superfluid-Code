@@ -11,10 +11,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import scipy.stats as st
+import subprocess
+
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import make_pipeline
+from sklearn.metrics import mean_squared_error, r2_score
 
 
-lc = (*pvm.Utilities.hex2one('#bd2b2b'), 0.3)
+lc = (*pvm.Utilities.hex2one('#bd2b2b'), 0.1)
 lb = (*pvm.Utilities.hex2one('#383535'), 1)
+lg = (*pvm.Utilities.hex2one('#bde364'), 1)
+lo = (*pvm.Utilities.hex2one('#e88317'), 1)
 
 # fname = 'N20_T50_S768390681'
 # fname = 'N20_T50_S457173602'
@@ -30,9 +38,11 @@ lb = (*pvm.Utilities.hex2one('#383535'), 1)
 # fname = 'N40_T500_S517932362' ### Mixed
 
 N = 50
-T = 5015
+T = 35000#5019
 R = 2000
-G = 0.3
+G = 0
+
+subprocess.call(f"python save_metadata.py {T} {N} {R} {G}")
 
 # Load fnames - use save_metadata.py to get a set of seeds satisfying certain criteria
 seedf = f"Metadata/N{N}_T{T}_Mixed.dat"
@@ -43,10 +53,10 @@ fnames = [f"N{N}_T{T}_R{R}_G{G}_S" + str(s) for s in seeds]
 print(seeds)
 
 # What are we looking at?
-statistic = 'rmsCluster'
-# statistic = 'rmsNonDipole'
-# statistic = 'rmsClusterNonCentered'
-# statistic = 'rmsNonDipoleNonCentered'
+# statistic = 'rmsCluster'
+statistic = 'rmsNonDipole'
+statistic = 'rmsClusterNonCentered'
+statistic = 'rmsNonDipoleNonCentered'
 # statistic = 'auto_corr'
 
 # statistics = ['rmsCluster', 'rmsClusterNonCentered']
@@ -74,13 +84,25 @@ for f in tqdm(fnames):
         tqdm.write(f'{f} did not contain {statistic}')
         continue
     
+    # Mask out values > 1950 - a little below the annihilation threshold
+    # We do this because the annihilate-at-boundary code strands one dipole partner in no mans land
+    # (typically relevant only for non-dipole clustering)
+    stat = analysis_data[statistic]
+    stat2 = []
+    for d in stat:
+        r = np.sqrt(np.array(d))
+        r = r < 1900
+        stat2.append(np.array(d)[r])
+            
+    stat = stat2
+    
     # Add statistic - the sum here is over all vortices, leaving us with the statistic as f(t)
     # vals.append( 
     #     np.array([[np.sum(d) for d in analysis_data[statistics[1]]]]).flatten()/t  
     #     - np.array([[np.sum(d) for d in analysis_data[statistics[0]]]]).flatten()/t
     #     )
-    
-    vals.append( np.array([[np.mean(d) for d in analysis_data[statistic]]]).flatten() )
+    #- np.mean(analysis_data[statistic][0]) ## abs, subtraction are "hacks"
+    vals.append( np.array([np.sqrt(np.abs(np.mean(d) - np.mean(stat[0])))  for d in stat]).flatten() )
     
     # For autocorrelation, sum has already been done. Could perhaps wait, so we have single-particle autocorrelations?
     # vals.append( analysis_data[statistic] - analysis_data[statistic][0])
@@ -96,7 +118,6 @@ for f in tqdm(fnames):
 # for v in vals:
     # v[0] = np.random.normal(0, 1e-6)
     
-    
 # Calculate its 95% confidence interval
 cfid = st.t.interval(0.95, len(vals)-1, loc=np.mean(vals, axis = 0), scale=st.sem(vals, axis = 0))
 
@@ -107,10 +128,50 @@ plt.fill_between(t, cfid[0], cfid[1], zorder = 1e3, alpha = .3)
 # Get the average
 avg = np.mean(vals, axis = 0).flatten()
 
-plt.plot(t, avg, label = 'Average', color = lb, zorder = 1e4)
-# plt.legend()
+# # Let's also make some fits to the average
+modela = make_pipeline(PolynomialFeatures(1), LinearRegression())
+modelb = make_pipeline(PolynomialFeatures(1), LinearRegression())
+
+# Introduce a cut; we do expect a linear trend only after the initial transient
+cutb = 10000
+tb = t[:cutb]
+modelb.fit(t[:cutb, np.newaxis], avg[:cutb, np.newaxis]**2)
+
+avg_predb = modelb.predict(t[:, np.newaxis])
+# if cutb:
+    # avg_predb = np.concatenate([avg_predb, np.mean(avg[cutb:])*np.ones(len(t)-cutb)[:, np.newaxis]])
+
+    
+# avg_predb = np.concatenate( [np.mean(avg[:cutb])*np.ones(cutb)[:, np.newaxis],  modelb.predict(t[cutb:, np.newaxis])] )
+
+mseb = mean_squared_error(avg[:cutb]**2, avg_predb[:cutb])
+r2b = r2_score(avg[:cutb]**2, avg_predb[:cutb])
+
+# Fit a quadratic
+cuta = 10000
+ta = t[cuta:]
+modela.fit(t[cuta:, np.newaxis], avg[cuta:, np.newaxis])
+
+avg_preda = modela.predict(t[cuta:, np.newaxis]) 
+# if cuta:
+    # avg_preda = np.concatenate([np.mean(avg[:cuta])*np.ones(cuta)[:, np.newaxis], avg_preda])
+
+msea = mean_squared_error(avg[cuta:], avg_preda)
+r2a = r2_score(avg[cuta:], avg_preda)
+
+print(f"Square root fit: MSE = {mseb}, R2 = {r2b}\nLinear fit: MSE = {msea}, R2 = {r2a}")
+
+# print(f"Quadratic parameters: {modela[1].coef_[0][1]}t + {modela[1].coef_[0][2]}t^2")
+
+# plt.plot(t, modela[1].intercept_ + modela[1].coef_[0][1]*t + modela[1].coef_[0][2]*t**2, label = 'manual pred')
+plt.plot(t, avg, label = 'Average', color = lb, zorder = 1e2)
+# plt.plot(t, avg/t, label = 'Inva', color = lo, zorder = 1e5)
+plt.plot(ta, avg_preda, label = 'Linear fit', color = lg, zorder = 5e3)
+plt.plot(t, np.sqrt(avg_predb), label = 'Square root fit', color = lo, zorder = 5e3)
+plt.legend()
 
 plt.xlabel('Time')
+plt.title(statistic)
 
 plt.show()
 

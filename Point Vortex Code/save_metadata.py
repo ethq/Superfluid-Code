@@ -11,6 +11,7 @@ from os.path import isfile, join
 import re
 import pickle
 import numpy as np
+import sys
 
 # Enumerates all data analyzed & saves a list of relevant seeds/filenames satisfying given criteria
 
@@ -19,10 +20,20 @@ import numpy as np
 path = 'Datafiles/'
 files = [f for f in listdir(path) if isfile(join(path, f))]
 
-T = 5015    # Time of simulation
-N = 50      # Number of vortices
-R = 2000    # Domain radius
-G = 0.3     # Rate of dissipation
+# Check for args
+if not len(sys.argv) > 1:
+    T = 5015    # Time of simulation
+    N = 50      # Number of vortices
+    R = 2000    # Domain radius
+    G = 0.3     # Rate of dissipation
+    
+else:
+    T = sys.argv[1]
+    N = sys.argv[2]
+    R = sys.argv[3]
+    G = sys.argv[4]
+    
+    print(f"Got T{T}, N{N}, R{R} and G{G} from argv")
 
 seeds = []
 for f in files:
@@ -31,11 +42,19 @@ for f in files:
     # expr = f"Evolution_N{N}_T{T}_S[0-9]+"
     # expr = f"E_N[0-9]+_T[0-9]+_R[0-9]+_G[0-9]+\.[0-9]+_S[0-9]+"
     expr = f"E_N{N}_T{T}_R{R}_G{G}_S[0-9]+"
+    
     m = re.search(expr, f)
     
     if not m:
         # print(f'File not added: {f}')
         continue
+    
+    # Check that accompanying analysis file exists
+    fa = 'A' + f.lstrip('E')
+    if not isfile(join(path,fa)):
+        print(f'Only evolution file existed: {fa}')
+        continue
+    
     
     # # Make sure its got an even number of signs and radius 200
     # fname = 'Datafiles/' + f
@@ -50,7 +69,7 @@ for f in files:
     # if not c or r != 2000:
     #     print(f'File had incorrect circ({c}) or radius({r}). {f}')
     #     continue
-    print(f)
+    
      # Slicing to extract seed
     nla = len(str(N)) + len(str(T))
     nlb = nla + len(str(R)) + len(str(G))

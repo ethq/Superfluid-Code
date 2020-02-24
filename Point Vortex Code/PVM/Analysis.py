@@ -951,6 +951,8 @@ class Analysis:
         # Differential for images
         dhi = 0
         
+        # This is overcounting!!! Check e.g. that 12 and 21 are counted. 
+        # Just results in a multiplicative factor, but anyway.
         # Loop over target vortex energies/energy
         for v1 in vortex_targets:
             if not v1.is_alive(frame):
@@ -982,6 +984,8 @@ class Analysis:
                 ri2 = np.sqrt(eucl_dist(v1p, v2ip))
                 
                 # Note the plus compared to minus for real vortices. This compensates for the fact that images have opposite sign.
+                # The factor 2 in front is due to the fact that we calculate the real energies using r2, e.g. the squared distance.
+                # Hence we must scale the image energies accordingly
                 dH2 = 2*v1.circ*v2.circ/np.pi*np.log(ri2*np.linalg.norm(v2p))
 
 #                # Same, just expanded. https://cims.nyu.edu/~obuhler/StatMechVort/BuhlerPF02.pdf

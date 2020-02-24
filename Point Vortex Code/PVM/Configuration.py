@@ -159,7 +159,7 @@ class Configuration:
                                        [15*np.cos(np.pi), 15*np.sin(np.pi)]])
     
     def opposite_2(self, p):
-        self.pos = np.array([[15, 0], [-15, 0]])
+        self.pos = np.array([[1, 0], [-1, 0]]).astype(float)
     
     
     """
@@ -170,6 +170,7 @@ class Configuration:
     def single_cluster(self, p):
         # Set defaults
         if not p:
+            p = {}
             p['center'] = [0, 0]
             p['sigma'] = .1*self.domain_radius
         
